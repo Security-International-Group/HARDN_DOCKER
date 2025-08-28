@@ -1,0 +1,11 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+
+if [[ "$(id -u)" -eq 0 ]]; then
+  /usr/local/bin/rhel.hardn.sh || echo "WARN: hardening script completed with warnings"
+  install -d -o hardn -g hardn /opt/hardn-xdr/state
+  exec su -s /bin/bash -c "$*" hardn
+else
+  exec "$@"
+fi
