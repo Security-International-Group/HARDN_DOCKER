@@ -3,7 +3,7 @@ A Deployable RHEL 9, HARDN/STIG/FIPS compliant Dockerfile image
 
 ## Build
 ```bash
-docker build -t ghcr.io/Opensource-for-freedom/hardn-xdr:rhel9 .
+docker build -t ghcr.io/opensource-for-freedom/hardn-xdr:rhel9 .
 ```
 ---
 ## Architecture 
