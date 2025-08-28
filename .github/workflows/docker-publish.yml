@@ -2,16 +2,15 @@ name: Docker
 
 on:
   schedule:
-    - cron: '10 * * * 3'
+    - cron: '27 11 * * *'
   push:
     branches: [ "main" ]
-    tags: [ 'v*.*.*' ]   # still allow manual semver tags
+    tags: [ 'v*.*.*' ]
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}      
-  DOCKER_TAG_BASE: rhel9
+  IMAGE_NAME: ${{ github.repository }}   # may contain uppercase
 
 jobs:
   build-test-push:
@@ -19,6 +18,7 @@ jobs:
     permissions:
       contents: write     # tag + release
       packages: write     # push to GHCR
+      security-events: write  # allow SARIF upload
       id-token: write     # cosign keyless
 
     steps:
@@ -27,9 +27,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Normalize image name to lowercase
+        id: repo
+        run: |
+          echo "name=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Install cosign (non-PR)
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
+        uses: sigstore/cosign-installer@v3.5.0
         with:
           cosign-release: 'v2.2.4'
 
@@ -37,17 +42,17 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+        uses: docker/setup-buildx-action@v3
 
       - name: Log into ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-
+      # Compute next tag (patch bump)
       - name: Compute next tag
         id: version
         shell: bash
@@ -62,37 +67,33 @@ jobs:
             m=$((m+1))
             next="v${v}.${M}.${m}"
           fi
-          echo "latest=${latest:-none}"
-          echo "next=${next}"
           echo "next=${next}" >> "$GITHUB_OUTPUT"
 
-
+      # ---------- BUILD (local, for testing) ----------
       - name: Build image for tests (loaded locally)
         run: |
           docker buildx build \
             --load \
-            -t $REGISTRY/${{ env.IMAGE_NAME }}:ci-test \
+            -t $REGISTRY/${{ steps.repo.outputs.name }}:ci-test \
             .
 
-
-      - name: Run hardn + smoke + STIG scan
+      # ---------- TESTS ----------
+      - name: Run hardening + smoke + STIG scan
         run: |
           set -euo pipefail
-          IMG="$REGISTRY/${{ env.IMAGE_NAME }}:ci-test"
+          IMG="$REGISTRY/${{ steps.repo.outputs.name }}:ci-test"
 
-          # Start container as root so entrypoint applies hardening, then keep it alive
           CID=$(docker run -d --user 0 --init \
                --read-only --cap-drop ALL --security-opt no-new-privileges \
                --tmpfs /tmp:rw,mode=1777 --tmpfs /run:rw,mode=0755 \
                "$IMG" sleep 600)
-
 
           sleep 5
 
           echo "[*] Smoke test"
           docker exec "$CID" /usr/local/bin/smoke_test.sh
 
-          echo "[*] STIG scan (OpenSCAP) - best effort in container"
+          echo "[*] STIG scan (OpenSCAP)"
           docker exec "$CID" bash -lc \
             'oscap xccdf eval \
                --profile xccdf_org.ssgproject.content_profile_stig \
@@ -112,20 +113,20 @@ jobs:
           name: stig-scan
           path: artifacts/*
 
-
+      # ---------- BUILD & PUSH (final) ----------
       - name: Extract Docker metadata (tags/labels)
         id: meta
-        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
+        uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}
           tags: |
-            type=raw,value=${{ env.DOCKER_TAG_BASE }}
+            type=raw,value=rhel9
             type=raw,value=${{ steps.version.outputs.next }}
             type=sha
 
       - name: Build and push Docker image
         id: build-and-push
-        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        uses: docker/build-push-action@v5
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
@@ -136,7 +137,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-
+      # ---------- SIGN ----------
       - name: Sign the published Docker image (cosign keyless)
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -145,7 +146,51 @@ jobs:
         run: |
           echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
 
+      # ---------- SBOM (Syft) ----------
+      - name: Generate SBOM (Syft) for pushed image@digest
+        id: sbom
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}@${{ steps.build-and-push.outputs.digest }}
+          format: spdx-json
+          artifact-name: sbom-spdx
+          output-file: sbom.spdx.json
 
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-spdx
+          path: sbom.spdx.json
+
+      # ---------- Vulnerability Scan (Trivy) ----------
+      - name: Trivy vulnerability scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}@${{ steps.build-and-push.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy.sarif'
+          vuln-type: 'os,library'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'            # fail the job if HIGH/CRITICAL found
+          ignore-unfixed: true
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-java-db
+
+      - name: Upload Trivy SARIF to code scanning
+        if: always()   # upload even if it failed to allow visibility
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+
+      - name: Upload Trivy report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sarif
+          path: trivy.sarif
+
+      # ---------- TAG & RELEASE ----------
       - name: Create git tag
         if: github.ref == 'refs/heads/main'
         run: |
@@ -161,3 +206,5 @@ jobs:
           files: |
             artifacts/stig_report.html
             artifacts/stig_results.xml
+            sbom.spdx.json
+            trivy.sarif
