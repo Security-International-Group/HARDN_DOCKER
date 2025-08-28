@@ -22,9 +22,7 @@ RUN dnf -y upgrade --refresh && \
       --nobest \
       bash coreutils findutils grep sed gawk tar xz \
       ca-certificates curl \
-      openssl crypto-policies \
-      python3 python3-pip \
-      shadow-utils \
+      openssl python3 python3-pip shadow-utils \
     && dnf clean all
 
 
