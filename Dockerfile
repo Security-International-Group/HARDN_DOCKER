@@ -16,7 +16,8 @@ ARG HARDN_UID=10001
 ARG HARDN_GID=10001
 
 
-RUN echo 'tsflags=nodocs' >> /etc/dnf/dnf.conf && \
+RUN mkdir -p /etc/dnf && \
+    echo 'tsflags=nodocs' >> /etc/dnf/dnf.conf && \
     dnf -y update && \
     dnf -y install --setopt=install_weak_deps=0 \
       bash coreutils findutils grep sed gawk tar xz \
@@ -28,7 +29,7 @@ RUN echo 'tsflags=nodocs' >> /etc/dnf/dnf.conf && \
       shadow-utils \
     && dnf clean all
 
-
+# Set userland crypto to FIPS (host kernel should also be FIPS-enabled)
 RUN update-crypto-policies --set FIPS || echo "WARN: Could not set FIPS (userland)"
 
 
@@ -38,14 +39,11 @@ RUN groupadd -g "${HARDN_GID}" -r hardn && \
 
 WORKDIR ${HARDN_XDR_HOME}
 
-
 COPY --chown=root:root --chmod=0755 rhel.hardn.sh /usr/local/bin/rhel.hardn.sh
 COPY --chown=root:root --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chown=root:root --chmod=0755 smoke_test.sh /usr/local/bin/smoke_test.sh
 
-
 STOPSIGNAL SIGTERM
-
 
 USER hardn
 WORKDIR /home/hardn
