@@ -1,5 +1,6 @@
 #!/bin/bash
 set -Eeuo pipefail
+umask 027
 
 
 if [[ "$(id -u)" -eq 0 ]]; then
