@@ -15,11 +15,11 @@ ENV LANG=C.UTF-8 \
 ARG HARDN_UID=10001
 ARG HARDN_GID=10001
 
-
-RUN mkdir -p /etc/dnf && \
-    echo 'tsflags=nodocs' >> /etc/dnf/dnf.conf && \
-    dnf -y update && \
-    dnf -y install --setopt=install_weak_deps=0 \
+# Install deps (no weak deps; no docs) and clean cache
+RUN dnf -y update && \
+    dnf -y install \
+      --setopt=install_weak_deps=0 \
+      --setopt=tsflags=nodocs \
       bash coreutils findutils grep sed gawk tar xz \
       ca-certificates curl \
       openssl crypto-policies \
@@ -29,7 +29,7 @@ RUN mkdir -p /etc/dnf && \
       shadow-utils \
     && dnf clean all
 
-# Set userland crypto to FIPS (host kernel should also be FIPS-enabled)
+
 RUN update-crypto-policies --set FIPS || echo "WARN: Could not set FIPS (userland)"
 
 
