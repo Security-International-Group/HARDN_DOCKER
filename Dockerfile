@@ -17,7 +17,7 @@ ARG HARDN_GID=10001
 
 RUN microdnf -y update && \
     microdnf -y install \
-      bash coreutils findutils grep sed awk tar xz \
+      bash coreutils findutils grep sed gawk tar xz \
       ca-certificates curl wget \
       openssl crypto-policies \
       openscap-scanner scap-security-guide \
