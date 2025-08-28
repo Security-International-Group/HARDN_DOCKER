@@ -1,0 +1,163 @@
+name: Docker
+
+on:
+  schedule:
+    - cron: '10 * * * 3'
+  push:
+    branches: [ "main" ]
+    tags: [ 'v*.*.*' ]   # still allow manual semver tags
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}      
+  DOCKER_TAG_BASE: rhel9
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # tag + release
+      packages: write     # push to GHCR
+      id-token: write     # cosign keyless
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install cosign (non-PR)
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Log into ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+
+      - name: Compute next tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags
+          latest=$(git tag -l "v*.*.*" --sort=-v:refname | head -n1)
+          if [[ -z "${latest}" ]]; then
+            next="v1.0.0"
+          else
+            IFS='.' read -r v M m <<<"${latest#v}"
+            m=$((m+1))
+            next="v${v}.${M}.${m}"
+          fi
+          echo "latest=${latest:-none}"
+          echo "next=${next}"
+          echo "next=${next}" >> "$GITHUB_OUTPUT"
+
+
+      - name: Build image for tests (loaded locally)
+        run: |
+          docker buildx build \
+            --load \
+            -t $REGISTRY/${{ env.IMAGE_NAME }}:ci-test \
+            .
+
+
+      - name: Run hardn + smoke + STIG scan
+        run: |
+          set -euo pipefail
+          IMG="$REGISTRY/${{ env.IMAGE_NAME }}:ci-test"
+
+          # Start container as root so entrypoint applies hardening, then keep it alive
+          CID=$(docker run -d --user 0 --init \
+               --read-only --cap-drop ALL --security-opt no-new-privileges \
+               --tmpfs /tmp:rw,mode=1777 --tmpfs /run:rw,mode=0755 \
+               "$IMG" sleep 600)
+
+
+          sleep 5
+
+          echo "[*] Smoke test"
+          docker exec "$CID" /usr/local/bin/smoke_test.sh
+
+          echo "[*] STIG scan (OpenSCAP) - best effort in container"
+          docker exec "$CID" bash -lc \
+            'oscap xccdf eval \
+               --profile xccdf_org.ssgproject.content_profile_stig \
+               --report /tmp/stig_report.html \
+               --results /tmp/stig_results.xml \
+               /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true'
+
+          mkdir -p artifacts
+          docker cp "$CID":/tmp/stig_report.html artifacts/stig_report.html || true
+          docker cp "$CID":/tmp/stig_results.xml artifacts/stig_results.xml || true
+
+          docker rm -f "$CID" >/dev/null
+
+      - name: Upload STIG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stig-scan
+          path: artifacts/*
+
+
+      - name: Extract Docker metadata (tags/labels)
+        id: meta
+        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.DOCKER_TAG_BASE }}
+            type=raw,value=${{ steps.version.outputs.next }}
+            type=sha
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+
+      - name: Sign the published Docker image (cosign keyless)
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: |
+          echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+
+      - name: Create git tag
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git tag ${{ steps.version.outputs.next }}
+          git push origin ${{ steps.version.outputs.next }}
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.next }}
+          generate_release_notes: true
+          files: |
+            artifacts/stig_report.html
+            artifacts/stig_results.xml
