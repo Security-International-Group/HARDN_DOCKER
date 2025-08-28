@@ -17,14 +17,10 @@ ARG HARDN_GID=10001
 
 # Install deps (no weak deps; no docs) and clean cache
 RUN dnf -y update && \
-    dnf -y install \
-      --setopt=install_weak_deps=0 \
-      --setopt=tsflags=nodocs \
+    dnf -y install --setopt=install_weak_deps=0 \
       bash coreutils findutils grep sed gawk tar xz \
       ca-certificates curl \
       openssl crypto-policies \
-      openscap-scanner scap-security-guide \
-      aide libpwquality \
       python3 python3-pip \
       shadow-utils \
     && dnf clean all
