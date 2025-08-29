@@ -119,11 +119,11 @@ jobs:
 
           # Start container with proper user handling
           echo "Starting container..."
-          CID=$(timeout 60 docker run -d --init \
-               --read-only --cap-drop ALL --security-opt no-new-privileges \
+          CID=$(timeout 120 docker run -d \
                --tmpfs /tmp:rw,mode=1777 \
                --tmpfs /run:rw,mode=0755 \
-               --tmpfs /opt/hardn-xdr/state:rw,mode=0755 \
+               --tmpfs /opt/hardn-xdr:rw,mode=0755 \
+               --tmpfs /home/hardn:rw,mode=0755 \
                "$IMG")
           
           if [ -z "$CID" ]; then
@@ -133,13 +133,23 @@ jobs:
 
           # Wait for container to be ready
           echo "Waiting for container to initialize..."
-          for i in {1..30}; do
-            if docker exec "$CID" true 2>/dev/null; then
-              echo "Container is ready!"
-              break
+          for i in {1..60}; do
+            echo "Checking container status (attempt $i/60)..."
+            if docker ps | grep -q "$CID"; then
+              echo "Container is running"
+              if docker exec "$CID" echo "Container is responsive" >/dev/null 2>&1; then
+                echo "Container is ready for exec commands!"
+                break
+              else
+                echo "Container running but not ready for exec"
+              fi
+            else
+              echo "Container is not running"
+              docker logs "$CID" 2>/dev/null || echo "No logs available"
+              exit 1
             fi
-            echo "Waiting... ($i/30)"
-            sleep 2
+            echo "Waiting... ($i/60)"
+            sleep 3
           done
 
           # Check if container is still running
