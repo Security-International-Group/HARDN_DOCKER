@@ -29,6 +29,13 @@ IFS=$'\n\t'
 # Prevent interactive prompts during apt operations in automated/container environments
 export DEBIAN_FRONTEND=noninteractive
 
+# Check if running in container environment
+IS_CONTAINER=false
+if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
+  IS_CONTAINER=true
+  echo "Detected container environment, skipping package installations..."
+fi
+
 ###############################################################################
 # Uninstall Option: Remove configuration modifications.
 ###############################################################################
@@ -77,79 +84,87 @@ echo "---------------------------------------------"
 ###############################################################################
 # Pre-installation: Install gnupg/gnupg2 and add Lynis repository
 ###############################################################################
-echo "[+] Installing gnupg and gnupg2..."
-apt-get update
-apt-get install -y gnupg gnupg2
+if [[ "$IS_CONTAINER" == "false" ]]; then
+  echo "[+] Installing gnupg and gnupg2..."
+  apt-get update
+  apt-get install -y gnupg gnupg2
 
-echo "[+] Adding the Lynis repository..."
-mkdir -p /etc/apt/trusted.gpg.d /tmp
-KEY_URL="https://packages.cisofy.com/keys/cisofy-software-public.key"
-curl -fsSL "$KEY_URL" -o /tmp/cisofy-software-public.key || true
-if command -v gpg >/dev/null 2>&1 && [ -s /tmp/cisofy-software-public.key ]; then
-  gpg --dearmor /tmp/cisofy-software-public.key -o /etc/apt/trusted.gpg.d/cisofy-software-public.gpg || true
-fi
-echo "deb [arch=amd64,arm64 signed-by=/etc/apt/trusted.gpg.d/cisofy-software-public.gpg] https://packages.cisofy.com/community/lynis/deb/ stable main" | tee /etc/apt/sources.list.d/cisofy-lynis.list
-apt-get install -y apt-transport-https || true
-echo "[+] Running an apt-get update after adding the Lynis repo..."
-if ! apt-get update -o Acquire::AllowInsecureRepositories=false; then
-  echo "apt-get update failed; attempting apt-key fallback..."
-  if [ -s /tmp/cisofy-software-public.key ]; then
-    apt-key add /tmp/cisofy-software-public.key || true
-    apt-get update || true
+  echo "[+] Adding the Lynis repository..."
+  mkdir -p /etc/apt/trusted.gpg.d /tmp
+  KEY_URL="https://packages.cisofy.com/keys/cisofy-software-public.key"
+  curl -fsSL "$KEY_URL" -o /tmp/cisofy-software-public.key || true
+  if command -v gpg >/dev/null 2>&1 && [ -s /tmp/cisofy-software-public.key ]; then
+    gpg --dearmor /tmp/cisofy-software-public.key -o /etc/apt/trusted.gpg.d/cisofy-software-public.gpg || true
   fi
+  echo "deb [arch=amd64,arm64 signed-by=/etc/apt/trusted.gpg.d/cisofy-software-public.gpg] https://packages.cisofy.com/community/lynis/deb/ stable main" | tee /etc/apt/sources.list.d/cisofy-lynis.list
+  apt-get install -y apt-transport-https || true
+  echo "[+] Running an apt-get update after adding the Lynis repo..."
+  if ! apt-get update -o Acquire::AllowInsecureRepositories=false; then
+    echo "apt-get update failed; attempting apt-key fallback..."
+    if [ -s /tmp/cisofy-software-public.key ]; then
+      apt-key add /tmp/cisofy-software-public.key || true
+      apt-get update || true
+    fi
+  fi
+else
+  echo "[+] Skipping package repository setup in container environment"
 fi
 
 ###############################################################################
 # Install Essential Packages (including sysstat, aide, etc.)
 ###############################################################################
-echo "[+] Installing essential system packages..."
-ESSENTIAL_PACKAGES=(
-  ufw
-  fail2ban
-  apparmor
-  apparmor-utils
-  firejail
-  tcpd
-  lynis
-  debsums
-  rkhunter
-  git
-  macchanger
-  libpam-tmpdir            # Sets $TMP and $TMPDIR for PAM sessions.
-  apt-listbugs             # Display critical bugs with APT.
-  needrestart              # Detect services needing restart after upgrades.
-  apt-show-versions        # For patch management.
-  unattended-upgrades      # Automatic upgrades.
-  acct                     # Process accounting.
-  sysstat                  # System performance statistics.
-  auditd                   # Audit daemon.
-  aide                     # File integrity checker.
-  libpam-pwquality         # Enforce password strength via PAM.
-)
-for pkg in "${ESSENTIAL_PACKAGES[@]}"; do
-  if ! dpkg -s "$pkg" &>/dev/null; then
-    echo "Installing package: $pkg..."
-    apt-get install -y --no-install-recommends "$pkg"
-  else
-    echo "Package $pkg is already installed."
+if [[ "$IS_CONTAINER" == "false" ]]; then
+  echo "[+] Installing essential system packages..."
+  ESSENTIAL_PACKAGES=(
+    ufw
+    fail2ban
+    apparmor
+    apparmor-utils
+    firejail
+    tcpd
+    lynis
+    debsums
+    rkhunter
+    git
+    macchanger
+    libpam-tmpdir            # Sets $TMP and $TMPDIR for PAM sessions.
+    apt-listbugs             # Display critical bugs with APT.
+    needrestart              # Detect services needing restart after upgrades.
+    apt-show-versions        # For patch management.
+    unattended-upgrades      # Automatic upgrades.
+    acct                     # Process accounting.
+    sysstat                  # System performance statistics.
+    auditd                   # Audit daemon.
+    aide                     # File integrity checker.
+    libpam-pwquality         # Enforce password strength via PAM.
+  )
+  for pkg in "${ESSENTIAL_PACKAGES[@]}"; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+      echo "Installing package: $pkg..."
+      apt-get install -y --no-install-recommends "$pkg"
+    else
+      echo "Package $pkg is already installed."
+    fi
+  done
+
+  # Ensure package database consistency and perform fixes that Lynis expects
+  echo "[+] Repairing package database and running apt checks..."
+  dpkg --configure -a || true
+  apt-get -f install -y || true
+  apt-get update || true
+  apt-get check || apt-get -f install -y || true
+
+  # Install and start a syslog daemon so Lynis/klogd checks have something to query
+  if ! dpkg -s rsyslog &>/dev/null; then
+    echo "[+] Installing rsyslog to satisfy kernel logging checks..."
+    apt-get install -y --no-install-recommends rsyslog || true
   fi
-done
-
-# Ensure package database consistency and perform fixes that Lynis expects
-echo "[+] Repairing package database and running apt checks..."
-dpkg --configure -a || true
-apt-get -f install -y || true
-apt-get update || true
-apt-get check || apt-get -f install -y || true
-
-# Install and start a syslog daemon so Lynis/klogd checks have something to query
-if ! dpkg -s rsyslog &>/dev/null; then
-  echo "[+] Installing rsyslog to satisfy kernel logging checks..."
-  apt-get install -y --no-install-recommends rsyslog || true
-fi
-if command -v rsyslogd >/dev/null 2>&1; then
-  echo "[+] Starting rsyslogd in background..."
-  /usr/sbin/rsyslogd || echo "Warning: rsyslogd failed to start (container/systemd limitations)."
+  if command -v rsyslogd >/dev/null 2>&1; then
+    echo "[+] Starting rsyslogd in background..."
+    /usr/sbin/rsyslogd || echo "Warning: rsyslogd failed to start (container/systemd limitations)."
+  fi
+else
+  echo "[+] Skipping package installations in container environment"
 fi
 
 ###############################################################################
@@ -161,7 +176,11 @@ if [ -f /etc/default/sysstat ]; then
 fi
 
 echo "[+] Disabling auditd (due to empty ruleset)..."
-systemctl disable --now auditd || echo "Warning: Could not disable auditd."
+if [[ "$IS_CONTAINER" == "false" ]]; then
+  systemctl disable --now auditd || echo "Warning: Could not disable auditd."
+else
+  echo "Skipping auditd disable in container environment"
+fi
 
 ###############################################################################
 # Configure UFW Firewall, Fail2Ban & AppArmor
@@ -197,22 +216,26 @@ EOF
   fi
 fi
 
-echo "[+] Enabling Fail2Ban and AppArmor services..."
-systemctl enable --now fail2ban || true
-systemctl enable --now apparmor || true
+if [[ "$IS_CONTAINER" == "false" ]]; then
+  echo "[+] Enabling Fail2Ban and AppArmor services..."
+  systemctl enable --now fail2ban || true
+  systemctl enable --now apparmor || true
 
-###############################################################################
-# Configure Secure Cron Jobs
-###############################################################################
-echo "[+] Configuring secure cron jobs..."
-CRON_JOB_FILE="/root/hardn_cron_jobs"
-cat <<EOF > "$CRON_JOB_FILE"
+  ###############################################################################
+  # Configure Secure Cron Jobs
+  ###############################################################################
+  echo "[+] Configuring secure cron jobs..."
+  CRON_JOB_FILE="/root/hardn_cron_jobs"
+  cat <<EOF > "$CRON_JOB_FILE"
 0 1 * * * lynis audit system --cronjob >> /var/log/lynis_cron.log 2>&1
 0 2 * * * apt-get update && apt-get upgrade -y
 EOF
-chmod 600 "$CRON_JOB_FILE"
-crontab "$CRON_JOB_FILE" || true
-rm -f "$CRON_JOB_FILE"
+  chmod 600 "$CRON_JOB_FILE"
+  crontab "$CRON_JOB_FILE" || true
+  rm -f "$CRON_JOB_FILE"
+else
+  echo "[+] Skipping service and cron setup in container environment"
+fi
 
 ###############################################################################
 # Disable USB Storage and Update 'locate' Database
@@ -371,8 +394,12 @@ echo "[+] Advanced hardening settings applied."
 ###############################################################################
 # Clean-Up: Remove gnupg and gnupg2 as they are no longer needed.
 ###############################################################################
-echo "[+] Removing gnupg and gnupg2..."
-apt remove gnupg gnupg2 -y || true
+if [[ "$IS_CONTAINER" == "false" ]]; then
+  echo "[+] Removing gnupg and gnupg2..."
+  apt remove gnupg gnupg2 -y || true
+else
+  echo "[+] Skipping gnupg removal in container environment"
+fi
 
 ###############################################################################
 

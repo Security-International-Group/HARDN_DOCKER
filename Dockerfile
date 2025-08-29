@@ -19,7 +19,30 @@ ARG HARDN_GID=10001
 
 
 # Install packages in smaller chunks to avoid conflicts
-RUN apt-get update && apt-get -y upgrade && \
+RUN set -euo pipefail && \
+    echo "deb http://deb.debian.org/debian stable main contrib non-free" > /etc/apt/sources.list && \
+    echo "deb http://deb.debian.org/debian stable-updates main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb http://security.debian.org/debian-security stable-security main contrib non-free" >> /etc/apt/sources.list && \
+    for i in {1..5}; do \
+        echo "Attempt $i of apt-get update..." && \
+        if apt-get update --error-on=any 2>&1; then \
+            echo "apt-get update succeeded on attempt $i" && \
+            break; \
+        else \
+            echo "apt-get update failed on attempt $i, retrying in 10 seconds..." && \
+            sleep 10 && \
+            if [ $i -eq 5 ]; then \
+                echo "All apt-get update attempts failed, trying alternative mirror..." && \
+                sed -i 's/deb.debian.org/ftp.debian.org/g' /etc/apt/sources.list && \
+                apt-get update --error-on=any || { \
+                    echo "Alternative mirror also failed, trying another..." && \
+                    sed -i 's/ftp.debian.org/mirror.debian.org/g' /etc/apt/sources.list && \
+                    apt-get update --error-on=any; \
+                }; \
+            fi; \
+        fi; \
+    done && \
+    apt-get -y upgrade && \
     apt-get install -y --no-install-recommends \
       bash coreutils findutils grep sed gawk tar xz-utils which \
       ca-certificates curl \
