@@ -1,17 +1,24 @@
-# HARDN_RHEL_Docker_image
-A Deployable RHEL 9, HARDN/STIG/FIPS compliant Dockerfile image 
+# HARDN_Debian_Docker_image
+A Deployable Debian 12, HARDN/STIG compliant Dockerfile image 
 
 ## Build
 ```bash
-docker build -t ghcr.io/opensource-for-freedom/hardn-xdr:rhel9 .
+# Build 
+docker build -t hardn-xdr:deb12 .
+
+# Remove any previous container 
+docker rm -f hardn-xdr 2>/dev/null || true
+
+# Run 
+docker run --name hardn-xdr -d hardn-xdr:deb12
 ```
 ---
 ## Architecture 
 
 ```bash
-hardn-xdr-rhel/
+hardn-xdr-deb/
 ├─ Dockerfile
-├─ rhel.hardn.sh
+├─ deb.hardn.sh
 ├─ entrypoint.sh
 ├─ smoke_test.sh
 ├─ README.md

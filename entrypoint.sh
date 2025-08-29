@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 027
 
 if [[ "$(id -u)" -eq 0 ]]; then
-  /usr/local/bin/rhel.hardn.sh || echo "WARN: hardening script completed with warnings"
+  /usr/local/bin/deb.hardn.sh || echo "WARN: hardening script completed with warnings"
   STATE_DIR="${HARDN_XDR_HOME:-/opt/hardn-xdr}/state"
   if ! install -d -o hardn -g hardn "$STATE_DIR"; then
 
