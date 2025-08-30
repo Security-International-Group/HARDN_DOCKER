@@ -1,5 +1,5 @@
 # HARDN_Debian_Docker_image
-A Deployable Debian 12, HARDN/STIG compliant Dockerfile image 
+A Deployable Debian 13: trixie , HARDN/STIG/CIS compliant Dockerfile image 
 
 ## Build
 ```bash
