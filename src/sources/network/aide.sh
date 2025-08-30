@@ -118,17 +118,21 @@ initialize_minimal_aide() {
         create_minimal_aide_config
     fi
 
-    # Initialize database with minimal config
-    if command -v aide >/dev/null 2>&1; then
-        aide --config=/etc/aide/aide.conf --init
-        if [ -f /var/lib/aide/aide.db.new ]; then
-            mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
-            echo "Minimal AIDE database initialized successfully"
+    # Initialize database with minimal config (requires root)
+    if [[ "$(id -u)" -eq 0 ]]; then
+        if command -v aide >/dev/null 2>&1; then
+            aide --config=/etc/aide/aide.conf --init
+            if [ -f /var/lib/aide/aide.db.new ]; then
+                mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+                echo "Minimal AIDE database initialized successfully"
+            else
+                echo "Warning: AIDE database initialization may have failed"
+            fi
         else
-            echo "Warning: AIDE database initialization may have failed"
+            echo "AIDE not installed, skipping database initialization"
         fi
     else
-        echo "AIDE not installed, skipping database initialization"
+        echo "Warning: AIDE initialization requires root privileges, skipping"
     fi
 }
 
@@ -331,7 +335,44 @@ stig_file_integrity_check() {
     done
 }
 
+# Function to reinitialize AIDE database after hardening
+reinitialize_aide_database() {
+    echo "Reinitializing AIDE database with current hardened state..."
+
+    # Ensure AIDE config exists
+    if [ ! -f /etc/aide/aide.conf ]; then
+        create_minimal_aide_config
+    fi
+
+    # Reinitialize database with current state (requires root)
+    if [[ "$(id -u)" -eq 0 ]]; then
+        if command -v aide >/dev/null 2>&1; then
+            # Remove old database to force clean initialization
+            rm -f /var/lib/aide/aide.db
+            rm -f /var/lib/aide/aide.db.new
+
+            # Initialize with current state as baseline
+            aide --config=/etc/aide/aide.conf --init
+            if [ -f /var/lib/aide/aide.db.new ]; then
+                mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+                echo "AIDE database reinitialized successfully with hardened state as baseline"
+                return 0
+            else
+                echo "Warning: AIDE database reinitialization may have failed"
+                return 1
+            fi
+        else
+            echo "AIDE not installed, skipping database reinitialization"
+            return 1
+        fi
+    else
+        echo "Warning: AIDE reinitialization requires root privileges, skipping"
+        return 1
+    fi
+}
+
 # Functions are available when sourced
 export -f create_minimal_aide_config
 export -f initialize_minimal_aide
 export -f check_minimal_aide_integrity
+export -f reinitialize_aide_database

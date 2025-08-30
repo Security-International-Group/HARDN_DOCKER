@@ -1,0 +1,81 @@
+services:
+  hardn-xdr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hardn-xdr-container
+    restart: unless-stopped
+
+    # Resource limits for optimal performance
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+    # Security and isolation (FIXED for compatibility)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    # read_only: true  # Temporarily disabled for debugging
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+      - /var/tmp:noexec,nosuid,size=50m
+      - /var/run:noexec,nosuid,size=10m
+      - /var/log:noexec,nosuid,size=50m
+
+    # Networking
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:8089:8089"  # Example port, adjust as needed
+
+    # Volumes for persistent data
+    volumes:
+      - ./logs:/opt/hardn-xdr/state:rw
+      - ./config:/opt/hardn-xdr/config:ro
+
+    # Environment variables
+    environment:
+      - TZ=UTC
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      - DOCKER_MEMORY_LIMIT=4g
+      - DOCKER_CPU_SHARES=1024
+      - MALLOC_ARENA_MAX=1
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/health_check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Labels for organization
+    labels:
+      - "project=hardn-xdr"
+      - "version=1.0"
+      - "security.level=high"
+      - "compliance=cis-1.13.0"
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

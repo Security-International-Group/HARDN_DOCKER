@@ -7,9 +7,31 @@ echo "=== Entrypoint started ==="
 echo "Current user: $(id)"
 echo "Working directory: $(pwd)"
 echo "Arguments: $*"
+echo "Environment: $(env | grep -E '(PATH|HOME|USER|SHELL)' | sort)"
+
+# Debug: Check if required directories exist
+echo "Checking required directories..."
+for dir in /opt/hardn-xdr /sources /usr/local/bin; do
+    if [[ -d "$dir" ]]; then
+        echo "✓ Directory exists: $dir"
+        ls -la "$dir" | head -3
+    else
+        echo "✗ Directory missing: $dir"
+    fi
+done
+
+# Debug: Check if required files exist
+echo "Checking required files..."
+for file in /usr/local/bin/deb.hardn.sh /usr/local/bin/entrypoint.sh; do
+    if [[ -f "$file" ]]; then
+        echo "✓ File exists: $file"
+        ls -la "$file"
+    else
+        echo "✗ File missing: $file"
+    fi
+done
 
 if [[ "$(id -u)" -eq 0 ]]; then
-  # Check if hardening was already completed during build
   if [ -f "/opt/hardn-xdr/.hardening_complete" ]; then
     echo "Hardening already completed during build, skipping..."
   else
@@ -23,56 +45,21 @@ if [[ "$(id -u)" -eq 0 ]]; then
     fi
   fi
   
-  STATE_DIR="${HARDN_XDR_HOME:-/opt/hardn-xdr}/state"
-  echo "Creating state directory: $STATE_DIR"
-  if ! install -d -o hardn -g hardn "$STATE_DIR" 2>/dev/null; then
-    if install -d -o hardn -g hardn /run/hardn-xdr/state 2>/dev/null; then
-      STATE_DIR=/run/hardn-xdr/state
-    else
-      install -d -o hardn -g hardn /tmp/hardn-xdr/state 2>/dev/null || true
-      STATE_DIR=/tmp/hardn-xdr/state
-    fi
-    echo "INFO: using STATE_DIR=$STATE_DIR"
-  fi
+  mkdir -p /home/hardn
+  chown hardn:hardn /home/hardn
+  chmod 755 /home/hardn
+  
+  mkdir -p /var/lib/hardn
+  chown -R hardn:hardn /var/lib/hardn
+  chmod 755 /var/lib/hardn
+  
+  STATE_DIR="/opt/hardn-xdr/state"
+  mkdir -p "$STATE_DIR"
+  chown -R hardn:hardn "$STATE_DIR"
+  chmod 755 "$STATE_DIR"
   
   echo "Switching to hardn user..."
-  
-  # Try to use su-exec or gosu if available (better for containers)
-  if command -v su-exec >/dev/null 2>&1; then
-    echo "Using su-exec to switch user..."
-    exec su-exec hardn "${@:-while true; do sleep 30; done}"
-  elif command -v gosu >/dev/null 2>&1; then
-    echo "Using gosu to switch user..."
-    exec gosu hardn "${@:-while true; do sleep 30; done}"
-  else
-    # Fallback to su with proper environment
-    echo "Using su to switch user..."
-    # Create a simple wrapper script in a location accessible to hardn user
-    WRAPPER_DIR="/home/hardn"
-    WRAPPER_SCRIPT="$WRAPPER_DIR/cmd_wrapper.sh"
-    
-    # Ensure the directory exists and has proper permissions
-    mkdir -p "$WRAPPER_DIR" 2>/dev/null || true
-    chown hardn:hardn "$WRAPPER_DIR" 2>/dev/null || true
-    
-    # Create wrapper script with proper permissions
-    cat > "$WRAPPER_SCRIPT" << 'EOF'
-#!/bin/bash
-exec "$@"
-EOF
-    chmod 755 "$WRAPPER_SCRIPT"
-    chown hardn:hardn "$WRAPPER_SCRIPT" 2>/dev/null || true
-    
-    # Try to execute as hardn user
-    if su -c "$WRAPPER_SCRIPT $*" hardn 2>/dev/null; then
-      echo "Successfully executed command as hardn user"
-      exit 0  # Exit successfully if hardn user execution worked
-    else
-      echo "ERROR: Failed to execute as hardn user, running as root"
-      # Execute the command as root
-      exec "${@:-while true; do sleep 30; done}"
-    fi
-  fi
+  exec su - hardn -c "cd /opt/hardn-xdr && exec \"\$@\"" -- "${@:-while true; do sleep 30; done}"
 else
   echo "Running as non-root user, executing command..."
   exec "${@:-while true; do sleep 30; done}"
