@@ -36,21 +36,44 @@ if [[ "$(id -u)" -eq 0 ]]; then
   fi
   
   echo "Switching to hardn user..."
-  # Try bash first, fall back to sh
-  if command -v bash >/dev/null 2>&1; then
-    SHELL_CMD="/bin/bash"
-  else
-    SHELL_CMD="/bin/sh"
-  fi
   
-  # Use exec to replace the current process with su
-  if exec su -s "$SHELL_CMD" -c "${*:-while true; do sleep 30; done}" hardn 2>/dev/null; then
-    echo "Successfully switched to hardn user"
+  # Try to use su-exec or gosu if available (better for containers)
+  if command -v su-exec >/dev/null 2>&1; then
+    echo "Using su-exec to switch user..."
+    exec su-exec hardn "${@:-while true; do sleep 30; done}"
+  elif command -v gosu >/dev/null 2>&1; then
+    echo "Using gosu to switch user..."
+    exec gosu hardn "${@:-while true; do sleep 30; done}"
   else
-    echo "ERROR: Failed to switch to hardn user, staying as root"
-    exec "${@:-while true; do sleep 30; done}"
+    # Fallback to su with proper environment
+    echo "Using su to switch user..."
+    # Create a simple wrapper script in a location accessible to hardn user
+    WRAPPER_DIR="/home/hardn"
+    WRAPPER_SCRIPT="$WRAPPER_DIR/cmd_wrapper.sh"
+    
+    # Ensure the directory exists and has proper permissions
+    mkdir -p "$WRAPPER_DIR" 2>/dev/null || true
+    chown hardn:hardn "$WRAPPER_DIR" 2>/dev/null || true
+    
+    # Create wrapper script with proper permissions
+    cat > "$WRAPPER_SCRIPT" << 'EOF'
+#!/bin/bash
+exec "$@"
+EOF
+    chmod 755 "$WRAPPER_SCRIPT"
+    chown hardn:hardn "$WRAPPER_SCRIPT" 2>/dev/null || true
+    
+    # Try to execute as hardn user
+    if su -c "$WRAPPER_SCRIPT $*" hardn 2>/dev/null; then
+      echo "Successfully executed command as hardn user"
+      exit 0  # Exit successfully if hardn user execution worked
+    else
+      echo "ERROR: Failed to execute as hardn user, running as root"
+      # Execute the command as root
+      exec "${@:-while true; do sleep 30; done}"
+    fi
   fi
+else
+  echo "Running as non-root user, executing command..."
+  exec "${@:-while true; do sleep 30; done}"
 fi
-
-echo "Running as non-root user, executing command..."
-exec "${@:-while true; do sleep 30; done}"

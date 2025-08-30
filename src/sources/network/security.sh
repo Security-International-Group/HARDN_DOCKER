@@ -153,3 +153,20 @@ configure_arp_security() {
 # export -f analyze_network_traffic
 # export -f configure_dns_security
 # export -f configure_arp_security
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR Network Security Setup"
+    echo "================================="
+
+    configure_firewall
+    setup_network_monitoring
+    monitor_network_services
+    detect_port_scanning
+    analyze_network_traffic
+    configure_dns_security
+    configure_arp_security
+
+    echo ""
+    echo "Network security configuration completed."
+fi

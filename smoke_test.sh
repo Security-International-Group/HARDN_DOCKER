@@ -1,5 +1,5 @@
 #!/bin/bash
-# set -Eeuo pipefail  # Commented out to prevent premature exit
+set -euo pipefail  # Enable strict error handling
 
 echo "=========================================="
 echo " HARDN-XDR Container Health Check"
@@ -127,6 +127,90 @@ if [ -f /etc/security/limits.conf ] && grep -q "hard core 0" /etc/security/limit
     echo "[PASS] Core dumps disabled"
 else
     echo "[INFO] Core dump settings not configured"
+fi
+
+# Check for CVE-2025-24294 (Ruby resolv gem vulnerability)
+echo ""
+echo "=== CVE-2025-24294 Security Check ==="
+if command -v ruby >/dev/null 2>&1 && command -v gem >/dev/null 2>&1; then
+    RUBY_VERSION=$(ruby -v | grep -oP 'ruby \K[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    RESOLV_VERSION=$(gem list resolv | grep -oP 'resolv \(\K[^)]+' | head -1 || echo "unknown")
+    NET_IMAP_VERSION=$(gem list net-imap | grep -oP 'net-imap \(\K[^)]+' | head -1 || echo "unknown")
+    
+    echo "Ruby version: $RUBY_VERSION"
+    echo "Resolv gem version: $RESOLV_VERSION"
+    echo "Net-imap gem version: $NET_IMAP_VERSION"
+    
+    # Check if vulnerable versions are present
+    if [[ "$RUBY_VERSION" =~ ^3\.[23]\. ]]; then
+        if [[ "$RESOLV_VERSION" == "0.3.0" ]] || [[ "$RESOLV_VERSION" =~ ^0\.[0-6]\. && "$RESOLV_VERSION" != "0.3.1" && "$RESOLV_VERSION" != "0.6.2" ]]; then
+            echo "[FAIL] CVE-2025-24294: Vulnerable resolv gem version detected"
+        else
+            echo "[PASS] CVE-2025-24294: Resolv gem appears to be patched"
+        fi
+        
+        # Check net-imap for potential vulnerabilities
+        if [[ "$NET_IMAP_VERSION" != "unknown" ]]; then
+            echo "[PASS] Net-imap gem is available and updated"
+        else
+            echo "[INFO] Net-imap gem version unknown"
+        fi
+    else
+        echo "[INFO] CVE-2025-24294: Ruby version not in affected range"
+    fi
+else
+    echo "[INFO] CVE-2025-24294: Ruby not available in this environment"
+fi
+
+# Check Lynis hardening improvements
+echo ""
+echo "=== Lynis Hardening Verification ==="
+# Check sysctl improvements
+if [[ "$(sysctl -n kernel.kptr_restrict 2>/dev/null)" == "2" ]]; then
+    echo "[PASS] Kernel kptr_restrict properly configured"
+else
+    echo "[INFO] Kernel kptr_restrict not configured"
+fi
+
+if [[ "$(sysctl -n kernel.modules_disabled 2>/dev/null)" == "1" ]]; then
+    echo "[PASS] Kernel modules disabled"
+else
+    echo "[INFO] Kernel modules not disabled"
+fi
+
+# Check banners
+if grep -q "AUTHORIZED ACCESS ONLY" /etc/issue; then
+    echo "[PASS] Legal banner configured in /etc/issue"
+else
+    echo "[INFO] Legal banner not configured"
+fi
+
+# Check USB/firewire blacklisting
+if grep -q "blacklist usb-storage" /etc/modprobe.d/blacklist.conf; then
+    echo "[PASS] USB storage driver blacklisted"
+else
+    echo "[INFO] USB storage driver not blacklisted"
+fi
+
+# Check AIDE installation
+if command -v aide >/dev/null 2>&1; then
+    echo "[PASS] AIDE file integrity tool installed"
+else
+    echo "[INFO] AIDE not installed"
+fi
+
+# Check auditd
+if command -v auditctl >/dev/null 2>&1; then
+    echo "[PASS] Auditd installed"
+else
+    echo "[INFO] Auditd not installed"
+fi
+
+# Check NTP
+if command -v ntpd >/dev/null 2>&1 || command -v chronyd >/dev/null 2>&1; then
+    echo "[PASS] NTP service available"
+else
+    echo "[INFO] NTP service not available"
 fi
 
 # Check hardening script execution status

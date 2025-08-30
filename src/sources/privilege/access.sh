@@ -172,3 +172,22 @@ audit_user_activities() {
 # export -f configure_wheel_group
 # export -f configure_session_security
 # export -f audit_user_activities
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR Privilege Access Setup"
+    echo "================================"
+
+    audit_suid_sgid_files
+    remove_dangerous_suid
+    configure_pam_security
+    configure_user_access
+    prevent_privilege_escalation
+    configure_root_access
+    configure_wheel_group
+    configure_session_security
+    audit_user_activities
+
+    echo ""
+    echo "Privilege access configuration completed."
+fi

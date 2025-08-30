@@ -81,3 +81,16 @@ setup_tripwire_policy() {
 # export -f create_file_integrity_db
 # export -f verify_file_integrity
 # export -f setup_tripwire_policy
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR Tripwire Registry Setup"
+    echo "================================="
+
+    create_file_integrity_db
+    verify_file_integrity
+    setup_tripwire_policy
+
+    echo ""
+    echo "Tripwire registry configuration completed."
+fi

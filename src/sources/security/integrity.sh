@@ -149,3 +149,18 @@ enforce_security_policy() {
 # export -f run_cis_checks
 # export -f run_stig_checks
 # export -f enforce_security_policy
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR Security Integrity Setup"
+    echo "=================================="
+
+    create_integrity_baseline
+    verify_integrity
+    run_cis_checks
+    run_stig_checks
+    enforce_security_policy
+
+    echo ""
+    echo "Security integrity configuration completed."
+fi

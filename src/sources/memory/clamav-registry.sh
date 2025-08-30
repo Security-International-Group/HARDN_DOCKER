@@ -136,3 +136,18 @@ update_signatures() {
     echo "Signature database updated (simulated)"
     echo "Last update: $(date)" > /var/lib/hardn/clamav-last-update
 }
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR ClamAV Registry Setup"
+    echo "==============================="
+
+    setup_clamav_config
+    scan_system_files
+    monitor_file_changes
+    setup_file_monitoring
+    update_signatures
+
+    echo ""
+    echo "ClamAV registry configuration completed."
+fi

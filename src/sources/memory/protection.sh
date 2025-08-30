@@ -117,3 +117,19 @@ detect_memory_leaks() {
 # export -f monitor_memory_usage
 # export -f configure_oom_protection
 # export -f detect_memory_leaks
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR Memory Protection Setup"
+    echo "================================="
+
+    prevent_core_dumps
+    configure_memory_protection
+    setup_buffer_overflow_protection
+    monitor_memory_usage
+    configure_oom_protection
+    detect_memory_leaks
+
+    echo ""
+    echo "Memory protection configuration completed."
+fi

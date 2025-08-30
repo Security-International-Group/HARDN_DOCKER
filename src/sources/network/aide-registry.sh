@@ -1,6 +1,154 @@
 #!/bin/bash
 # HARDN-XDR AIDE Registry - Advanced Intrusion Detection
-# Mirrors AIDE functionality using native Linux tools
+# Minimal AIDE configuration for optimal performance
+
+# Minimal AIDE configuration content
+AIDE_MINIMAL_CONFIG='# Minimal AIDE configuration for container security
+# Optimized for performance and reduced footprint
+
+# Database configuration with compression
+database_in=file:/var/lib/aide/aide.db
+database_out=file:/var/lib/aide/aide.db.new
+gzip_dbout=yes
+
+# Use only SHA256 for faster performance (instead of all checksums)
+Checksums = sha256
+
+# Simplified group definitions for critical files only
+OwnerMode = p+u+g+ftype
+Size = s+b
+InodeData = OwnerMode+n+i+Size+l+X
+StaticFile = m+c+Checksums
+Full = InodeData+StaticFile
+VarTime = InodeData+Checksums
+VarInode = VarTime-i
+VarFile = OwnerMode+n+l+X
+VarDir = OwnerMode+n+i+X
+
+# Exclude volatile and unnecessary directories
+!/proc
+!/sys
+!/dev
+!/tmp
+!/var/tmp
+!/var/cache
+!/var/log
+!/run
+!/mnt
+!/media
+
+# Core system binaries and libraries (critical only)
+/bin/sh Full
+/bin/bash Full
+/sbin/init Full
+/usr/bin/sudo Full
+/usr/bin/passwd Full
+/usr/sbin/useradd Full
+/usr/sbin/userdel Full
+/usr/sbin/groupadd Full
+/usr/sbin/groupdel Full
+
+# Critical configuration files
+/etc/passwd Full
+/etc/shadow Full
+/etc/group Full
+/etc/gshadow Full
+/etc/hosts Full
+/etc/hostname Full
+/etc/resolv.conf Full
+/etc/fstab Full
+/etc/inittab Full
+/etc/crontab Full
+/etc/sysctl.conf Full
+/etc/sysctl.d/99-hardening.conf Full
+/etc/login.defs Full
+/etc/sudoers Full
+
+# Security configuration
+/etc/pam.d/.* Full
+/etc/security/.* Full
+/etc/ssh/sshd_config Full
+/etc/ssh/ssh_config Full
+
+# Network and firewall
+/etc/iptables/.* Full
+/etc/ufw/.* Full
+
+# Audit and logging configuration
+/etc/audit/auditd.conf Full
+/etc/audit/audit.rules Full
+/etc/rsyslog.conf Full
+
+# Package management critical files
+/etc/apt/sources.list Full
+/etc/apt/trusted.gpg.d/.* Full
+
+# Time synchronization
+/etc/chrony/chrony.conf Full
+
+# Security tools configuration
+/etc/fail2ban/jail.local Full
+/etc/aide/aide.conf Full
+
+# Apparmor profiles
+/etc/apparmor.d/.* Full
+'
+
+# Function to create minimal AIDE configuration
+create_minimal_aide_config() {
+    echo "Creating minimal AIDE configuration for optimal performance..."
+
+    # Backup original config if it exists
+    if [ -f /etc/aide/aide.conf ]; then
+        cp /etc/aide/aide.conf /etc/aide/aide.conf.backup
+    fi
+
+    # Write minimal configuration
+    echo "$AIDE_MINIMAL_CONFIG" > /etc/aide/aide.conf
+
+    echo "Minimal AIDE configuration created at /etc/aide/aide.conf"
+}
+
+# Function to initialize minimal AIDE database
+initialize_minimal_aide() {
+    echo "Initializing minimal AIDE database..."
+
+    # Ensure AIDE config exists
+    if [ ! -f /etc/aide/aide.conf ]; then
+        create_minimal_aide_config
+    fi
+
+    # Initialize database with minimal config
+    if command -v aide >/dev/null 2>&1; then
+        aide --config=/etc/aide/aide.conf --init
+        if [ -f /var/lib/aide/aide.db.new ]; then
+            mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+            echo "Minimal AIDE database initialized successfully"
+        else
+            echo "Warning: AIDE database initialization may have failed"
+        fi
+    else
+        echo "AIDE not installed, skipping database initialization"
+    fi
+}
+
+# Function to check AIDE integrity with minimal config
+check_minimal_aide_integrity() {
+    echo "Checking file integrity with minimal AIDE configuration..."
+
+    if [ ! -f /var/lib/aide/aide.db ]; then
+        echo "No AIDE database found. Initializing..."
+        initialize_minimal_aide
+        return 0
+    fi
+
+    if command -v aide >/dev/null 2>&1; then
+        aide --config=/etc/aide/aide.conf --check
+    else
+        echo "AIDE not installed, cannot perform integrity check"
+        return 1
+    fi
+}
 
 # AIDE configuration equivalent
 AIDE_CHECK_LEVELS="
@@ -184,7 +332,6 @@ stig_file_integrity_check() {
 }
 
 # Functions are available when sourced
-# export -f create_aide_database
-# export -f check_aide_integrity
-# export -f setup_aide_monitoring
-# export -f stig_file_integrity_check
+export -f create_minimal_aide_config
+export -f initialize_minimal_aide
+export -f check_minimal_aide_integrity

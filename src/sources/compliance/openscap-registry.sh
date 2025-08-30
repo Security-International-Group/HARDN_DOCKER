@@ -184,3 +184,17 @@ done
 # export -f disa_stig_checks
 # export -f generate_scap_report
 # export -f run_security_assessment
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR OpenSCAP Registry Setup"
+    echo "================================="
+
+    cis_docker_checks
+    disa_stig_checks
+    generate_scap_report
+    run_security_assessment
+
+    echo ""
+    echo "OpenSCAP registry configuration completed."
+fi

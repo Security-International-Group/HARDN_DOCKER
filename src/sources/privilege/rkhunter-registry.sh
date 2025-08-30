@@ -149,3 +149,16 @@ check_network_services() {
 # export -f detect_rootkits
 # export -f setup_network_monitoring
 # export -f check_network_services
+
+# Main execution
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "HARDN-XDR rkhunter Registry Setup"
+    echo "================================="
+
+    detect_rootkits
+    setup_network_monitoring
+    check_network_services
+
+    echo ""
+    echo "rkhunter registry configuration completed."
+fi
