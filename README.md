@@ -1,7 +1,8 @@
 # HARDN_Debian_Docker_image
 - A Deployable Debian 13: trixie , HARDN/STIG/CIS compliant Dockerfile image
 ---
-[![Docker](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml)
+## Packaging Status
+- [![Docker](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml)
 ## Build
 ```bash
 # Build 
@@ -17,13 +18,28 @@ docker run --name hardn-xdr -d hardn-xdr:deb12
 ## Architecture 
 
 ```bash
-hardn-xdr-deb/
-├─ Dockerfile
-├─ deb.hardn.sh
-├─ entrypoint.sh
-├─ smoke_test.sh
-├─ README.md
-├─ .github/
-│  └─ workflows/
-│     └─ ci.yml
+.
+├── .github/
+│   └── workflows/
+├── src/
+│   └── sources/
+│       ├── compliance/
+│       ├── memory/
+│       ├── network/
+│       ├── privilege/
+│       └── security/
+├── .dockerignore
+├── Dockerfile
+├── LICENSE
+├── README.md
+├── deb.hardn.sh
+├── docker-compose.yml
+├── entrypoint.sh
+└── smoke_test.sh
 ```
+
+## Status / Goals
+
+- Curent docker package build "under Construction" 
+- Current Docker image: Deployable
+- Currnet Debian 13: slim OS: Deployable
