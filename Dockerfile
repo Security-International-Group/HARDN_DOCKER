@@ -90,9 +90,9 @@ RUN groupadd -g "${HARDN_GID}" -r hardn \
 
 WORKDIR /opt/hardn-xdr
 
-COPY --chown=root:root --chmod=0755 deb.hardn.sh /usr/local/bin/
-COPY --chown=root:root --chmod=0755 entrypoint.sh /usr/local/bin/
-COPY --chown=root:root --chmod=0755 smoke_test.sh /usr/local/bin/
+COPY --chown=hardn:hardn --chmod=0700 deb.hardn.sh /usr/local/bin/
+COPY --chown=hardn:hardn --chmod=0700 entrypoint.sh /usr/local/bin/
+COPY --chown=hardn:hardn --chmod=0700 smoke_test.sh /usr/local/bin/
 COPY --chown=root:root src/sources/ /sources/
 
 
