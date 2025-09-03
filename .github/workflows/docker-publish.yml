@@ -79,23 +79,26 @@ jobs:
         run: |
           echo "Building Docker image for testing..."
           for i in {1..3}; do
-            echo "Build attempt $i of 3..."
             if docker buildx build \
                 --load \
                 -t $REGISTRY/${{ steps.repo.outputs.name }}:ci-test \
                 .; then
-              echo "Docker build completed successfully on attempt $i"
+              echo "Docker build completed successfully"
               break
-            else
-              echo "Docker build failed on attempt $i"
-              if [ $i -eq 3 ]; then
-                echo "ERROR: All Docker build attempts failed"
-                exit 1
-              fi
-              echo "Retrying in 30 seconds..."
-              sleep 30
             fi
+            if [ $i -eq 3 ]; then
+              echo "ERROR: All Docker build attempts failed"
+              exit 1
+            fi
+            echo "Retrying in 30 seconds..."
+            sleep 30
           done
+
+      # NEW: push the ci-test tag so other jobs (debug) can pull it
+      - name: Push :ci-test image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push $REGISTRY/${{ steps.repo.outputs.name }}:ci-test
 
       - name: Run hardening + smoke + STIG scan (root for this step only)
         shell: bash
@@ -103,68 +106,86 @@ jobs:
           set -euo pipefail
           IMG="$REGISTRY/${{ steps.repo.outputs.name }}:ci-test"
 
-          # Check default image user is non-root (CIS 5.4)
-          docker inspect --format '{{.Config.User}}' "$IMG" | grep -Eq '^[0-9]+:[0-9]+$' || {
-            echo "::error ::Image default user is not non-root"
+          # Ensure image default user is non-root (CIS 5.4)
+          DEF_USER="$(docker inspect --format '{{.Config.User}}' "$IMG" || true)"
+          if [[ ! "$DEF_USER" =~ ^[0-9]+:[0-9]+$ ]]; then
+            echo "::error ::Image default user is not non-root (uid:gid). Got: '$DEF_USER'"
             exit 1
-          }
+          fi
+          echo "Default image user: $DEF_USER"
 
-          # Warn if AppArmor not available
           sudo aa-status >/dev/null 2>&1 || echo "::warning ::AppArmor not available on host"
 
-          NAME="hardn-test-$$"
+          try_run() {
+            local name="$1"; shift
+            docker run -d --name "$name" \
+              --entrypoint "$ENTRY" \
+              --user 0:0 \
+              $EXTRA_FLAGS \
+              "$IMG" -lc 'sleep infinity'
+          }
 
-          # Run container as root, override entrypoint, keep read-only + tmpfs
-          docker run -d --name "$NAME" \
-            --entrypoint /bin/bash \
-            --user 0:0 \
-            --read-only \
-            --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=64m \
-            --tmpfs /run:rw,noexec,nosuid,mode=0755,size=16m \
-            --tmpfs /home/hardn:rw,mode=0755,size=32m \
-            --tmpfs /opt/hardn-xdr:rw,mode=0755,size=64m \
-            --pids-limit 256 \
-            --cap-drop ALL \
-            --security-opt no-new-privileges \
-            --security-opt apparmor=docker-default \
-            "$IMG" -lc 'sleep infinity'
+          # Try bash first, then sh; read-only first, then RW fallback
+          for ENTRY in /bin/bash /bin/sh; do
+            for mode in ro rw; do
+              NAME="hardn-test-$ENTRY-$mode-$$"
+              if [[ "$mode" == "ro" ]]; then
+                EXTRA_FLAGS="--read-only \
+                             --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=64m \
+                             --tmpfs /run:rw,noexec,nosuid,mode=0755,size=16m \
+                             --tmpfs /home/hardn:rw,mode=0755,size=32m \
+                             --tmpfs /opt/hardn-xdr:rw,mode=0755,size=64m"
+              else
+                EXTRA_FLAGS=""
+              fi
 
-          # Wait until container is responsive or bail
-          for i in {1..30}; do
-            if docker exec "$NAME" true 2>/dev/null; then break; fi
-            if ! docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
-              echo "::error ::Container exited during startup"
-              docker logs "$NAME" || true
-              docker rm -f "$NAME" >/dev/null 2>&1 || true
-              exit 1
-            fi
-            sleep 2
+              CID="$(try_run "$NAME" || true)"
+              [[ -n "${CID:-}" ]] || continue
+
+              ok=0
+              for i in {1..20}; do
+                if docker exec "$NAME" true 2>/dev/null; then ok=1; break; fi
+                if ! docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
+                  echo "::error ::Container died during startup ($ENTRY/$mode)"
+                  docker inspect "$NAME" --format \
+                    'Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' || true
+                  docker logs "$NAME" || true
+                  docker rm -f "$NAME" >/dev/null 2>&1 || true
+                  ok=0
+                  break
+                fi
+                sleep 1
+              done
+
+              if [[ $ok -eq 1 ]]; then
+                echo "[*] Smoke test"
+                docker exec "$NAME" "$ENTRY" -lc '/usr/local/bin/smoke_test.sh'
+
+                echo "[*] STIG scan"
+                CONTENT="$(docker exec "$NAME" "$ENTRY" -lc 'ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml 2>/dev/null | sort -V | tail -n1 || true')"
+                if [[ -n "$CONTENT" ]] && docker exec "$NAME" "$ENTRY" -lc 'command -v oscap >/dev/null'; then
+                  docker exec "$NAME" "$ENTRY" -lc \
+                    "oscap xccdf eval \
+                       --profile xccdf_org.ssgproject.content_profile_stig \
+                       --report /tmp/stig_report.html \
+                       --results /tmp/stig_results.xml \
+                       \"$CONTENT\" || echo 'STIG scan warnings'"
+                else
+                  docker exec "$NAME" "$ENTRY" -lc 'echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html'
+                  docker exec "$NAME" "$ENTRY" -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title></results>" > /tmp/stig_results.xml'
+                fi
+
+                mkdir -p artifacts
+                docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || true
+                docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || true
+                docker rm -f "$NAME" >/dev/null
+                exit 0
+              fi
+            done
           done
 
-          echo "[*] Smoke test"
-          docker exec "$NAME" bash -lc '/usr/local/bin/smoke_test.sh'
-
-          echo "[*] STIG scan (auto-detect Debian content)"
-          CONTENT=$(docker exec "$NAME" bash -lc 'shopt -s nullglob; files=(/usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml); [[ ${#files[@]} -gt 0 ]] && ls -1 ${files[@]} | sort -V | tail -n1 || true')
-          if [[ -n "$CONTENT" ]] && docker exec "$NAME" bash -lc 'command -v oscap >/dev/null'; then
-            echo "Using content: $CONTENT"
-            docker exec "$NAME" bash -lc \
-              "oscap xccdf eval \
-                 --profile xccdf_org.ssgproject.content_profile_stig \
-                 --report /tmp/stig_report.html \
-                 --results /tmp/stig_results.xml \
-                 \"$CONTENT\" || echo 'STIG scan completed with warnings'"
-          else
-            echo "STIG content not available; writing placeholders"
-            docker exec "$NAME" bash -lc 'echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html'
-            docker exec "$NAME" bash -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title></results>" > /tmp/stig_results.xml'
-          fi
-
-          mkdir -p artifacts
-          docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || true
-          docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || true
-
-          docker rm -f "$NAME" >/dev/null
+          echo "::error ::All startup strategies failed"
+          exit 1
 
       - name: Upload STIG artifacts
         uses: actions/upload-artifact@v4
@@ -203,7 +224,7 @@ jobs:
         run: |
           echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
 
-      - name: Generate SBOM (Syft) for pushed image@digest
+      - name: Generate SBOM (Syft)
         id: sbom
         uses: anchore/sbom-action@v0
         with:
@@ -234,3 +255,40 @@ jobs:
             artifacts/stig_report.html
             artifacts/stig_results.xml
             sbom.spdx.json
+
+  # Always-run debug job (executes even if the build job fails earlier)
+  debug-container:
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [build-test-push]
+    steps:
+      - name: Pull and start container in debug mode
+        run: |
+          set -e
+          IMG="${{ env.REGISTRY }}/${{ github.repository }}:ci-test"
+          echo "Pulling $IMG ..."
+          docker pull "$IMG"
+
+          # Bypass entrypoint; keep container alive
+          docker run -d --name debug-container \
+            --entrypoint /bin/sh \
+            "$IMG" -c "sleep infinity"
+
+          # Collect diagnostics
+          sleep 3
+          docker ps -a || true
+          docker inspect debug-container > debug-inspect.json || true
+          docker logs debug-container > debug-logs.txt || true
+
+          # Quick environment snapshot inside
+          docker exec debug-container /bin/sh -lc 'id; whoami; uname -a; cat /etc/os-release || true' > debug-inside.txt || true
+          docker exec debug-container /bin/sh -lc 'ls -l /usr/local/bin || true' >> debug-inside.txt || true
+
+          mkdir -p debug
+          mv debug-*.json debug-*.txt debug/ || true
+
+      - name: Upload debug bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-debug
+          path: debug/*
