@@ -5,7 +5,7 @@
 ## Build
 ```bash
 # Build 
-docker build -t hardn-xdr:deb12 .
+docker build -t hardn-xdr:deb13 .
 
 # Remove any previous container 
 docker rm -f hardn-xdr 2>/dev/null || true
