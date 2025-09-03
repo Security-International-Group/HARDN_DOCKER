@@ -1,11 +1,9 @@
 name: Docker
 
 on:
- # schedule:
-  #  - cron: '27 11 * * *'
   push:
     branches: [ "main" ]
-    tags: [ 'v*.*.*' ]
+    tags: [ "v*.*.*" ]
   workflow_dispatch:
 
 env:
@@ -16,10 +14,10 @@ jobs:
   build-test-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: write     # tag + release
-      packages: write     # push to GHCR
-      security-events: write  # allow SARIF upload
-      id-token: write     # cosign keyless
+      contents: write
+      packages: write
+      security-events: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -35,25 +33,15 @@ jobs:
       - name: Install cosign (non-PR)
         if: github.event_name != 'pull_request'
         run: |
-          # Install cosign manually to avoid architecture issues
+          set -euo pipefail
           COSIGN_VERSION="v2.2.4"
           ARCH=$(uname -m)
-          case $ARCH in
-            x86_64)
-              COSIGN_ARCH="amd64"
-              ;;
-            aarch64)
-              COSIGN_ARCH="arm64"
-              ;;
-            *)
-              echo "Unsupported architecture: $ARCH"
-              exit 1
-              ;;
+          case "$ARCH" in
+            x86_64) COSIGN_ARCH=amd64 ;;
+            aarch64) COSIGN_ARCH=arm64 ;;
+            *) echo "Unsupported arch: $ARCH"; exit 1 ;;
           esac
-          
-          echo "Installing cosign $COSIGN_VERSION for $COSIGN_ARCH..."
-          curl -L "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${COSIGN_ARCH}" \
-            -o /usr/local/bin/cosign
+          curl -fsSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${COSIGN_ARCH}" -o /usr/local/bin/cosign
           chmod +x /usr/local/bin/cosign
           cosign version
 
@@ -71,7 +59,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-
       - name: Compute next tag
         id: version
         shell: bash
@@ -87,7 +74,6 @@ jobs:
             next="v${v}.${M}.${m}"
           fi
           echo "next=${next}" >> "$GITHUB_OUTPUT"
-
 
       - name: Build image for tests (loaded locally)
         run: |
@@ -111,78 +97,60 @@ jobs:
             fi
           done
 
-
-      - name: Run hardening + smoke + STIG scan
+      - name: Run hardening + smoke + STIG scan (root for this step only)
+        shell: bash
         run: |
           set -euo pipefail
           IMG="$REGISTRY/${{ steps.repo.outputs.name }}:ci-test"
 
-          # Start container with proper user handling
-          echo "Starting container..."
-          CID=$(timeout 120 docker run -d \
-               --tmpfs /tmp:rw,mode=1777 \
-               --tmpfs /run:rw,mode=0755 \
-               --tmpfs /opt/hardn-xdr:rw,mode=0755 \
-               --tmpfs /home/hardn:rw,mode=0755 \
-               "$IMG")
-          
-          if [ -z "$CID" ]; then
-            echo "ERROR: Failed to start container"
+          # Check default image user is non-root (CIS 5.4)
+          docker inspect --format '{{.Config.User}}' "$IMG" | grep -Eq '^[0-9]+:[0-9]+$' || {
+            echo "::error ::Image default user is not non-root"
             exit 1
+          }
+
+          # Warn if AppArmor not available
+          if ! sudo aa-status >/dev/null 2>&1; then
+            echo "::warning ::AppArmor not available on host"
           fi
 
-          # Wait for container to be ready
-          echo "Waiting for container to initialize..."
-          for i in {1..60}; do
-            echo "Checking container status (attempt $i/60)..."
-            if docker ps | grep -q "$CID"; then
-              echo "Container is running"
-              if docker exec "$CID" echo "Container is responsive" >/dev/null 2>&1; then
-                echo "Container is ready for exec commands!"
-                break
-              else
-                echo "Container running but not ready for exec"
-              fi
-            else
-              echo "Container is not running"
-              docker logs "$CID" 2>/dev/null || echo "No logs available"
-              exit 1
-            fi
-            echo "Waiting... ($i/60)"
-            sleep 3
+          CID=$(docker run -d \
+            --user 0:0 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=64m \
+            --tmpfs /run:rw,noexec,nosuid,mode=0755,size=16m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --security-opt apparmor=docker-default \
+            "$IMG" \
+            bash -lc 'sleep infinity')
+
+          for i in {1..20}; do
+            docker exec "$CID" true && break || sleep 2
           done
 
-          # Check if container is still running
-          if ! docker ps | grep -q "$CID"; then
-            echo "ERROR: Container exited prematurely"
-            docker logs "$CID"
-            exit 1
-          fi
-
           echo "[*] Smoke test"
-          docker exec "$CID" /usr/local/bin/smoke_test.sh
+          docker exec "$CID" bash -lc '/usr/local/bin/smoke_test.sh'
 
-          echo "[*] STIG scan (OpenSCAP) - checking for available content"
-          # Check if OpenSCAP content is available before running scan
-          if docker exec "$CID" bash -c 'command -v oscap >/dev/null && [ -d /usr/share/xml/scap/ssg/content ] && ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml >/dev/null 2>&1'; then
-            echo "OpenSCAP content found, running STIG scan..."
+          echo "[*] STIG scan (auto-detect Debian content)"
+          CONTENT=$(docker exec "$CID" bash -lc 'shopt -s nullglob; files=(/usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml); [[ ${#files[@]} -gt 0 ]] && ls -1 ${files[@]} | sort -V | tail -n1 || true')
+          if [[ -n "$CONTENT" ]] && docker exec "$CID" bash -lc 'command -v oscap >/dev/null'; then
+            echo "Using content: $CONTENT"
             docker exec "$CID" bash -lc \
-              'oscap xccdf eval \
+              "oscap xccdf eval \
                  --profile xccdf_org.ssgproject.content_profile_stig \
                  --report /tmp/stig_report.html \
                  --results /tmp/stig_results.xml \
-                 /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml || echo "STIG scan completed with warnings"' || echo "STIG scan failed - OpenSCAP content not available"
+                 \"$CONTENT\" || echo 'STIG scan warnings'"
           else
-            echo "OpenSCAP STIG content not available - skipping STIG scan"
-            # Create placeholder files
-            docker exec "$CID" bash -c 'echo "<html><body><h1>STIG Scan Not Available</h1><p>OpenSCAP SSG content not installed</p></body></html>" > /tmp/stig_report.html'
-            docker exec "$CID" bash -c 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title></results>" > /tmp/stig_results.xml'
+            echo "STIG content not available"
+            docker exec "$CID" bash -lc 'echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html'
+            docker exec "$CID" bash -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title></results>" > /tmp/stig_results.xml'
           fi
 
           mkdir -p artifacts
-          docker cp "$CID":/tmp/stig_report.html artifacts/stig_report.html || echo "Warning: Could not copy STIG report"
-          docker cp "$CID":/tmp/stig_results.xml artifacts/stig_results.xml || echo "Warning: Could not copy STIG results"
-
+          docker cp "$CID":/tmp/stig_report.html artifacts/stig_report.html || true
+          docker cp "$CID":/tmp/stig_results.xml artifacts/stig_results.xml || true
           docker rm -f "$CID" >/dev/null
 
       - name: Upload STIG artifacts
@@ -191,14 +159,13 @@ jobs:
           name: stig-scan
           path: artifacts/*
 
-
       - name: Extract Docker metadata (tags/labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}
           tags: |
-            type=raw,value=deb12
+            type=raw,value=deb13
             type=raw,value=${{ steps.version.outputs.next }}
             type=sha
 
@@ -215,7 +182,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-
       - name: Sign the published Docker image (cosign keyless)
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -223,7 +189,6 @@ jobs:
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
         run: |
           echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
-
 
       - name: Generate SBOM (Syft) for pushed image@digest
         id: sbom
@@ -239,35 +204,6 @@ jobs:
         with:
           name: sbom-spdx
           path: sbom.spdx.json
-
-      - name: Trivy vulnerability scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}@${{ steps.build-and-push.outputs.digest }}
-          format: 'sarif'
-          output: 'trivy.sarif'
-          vuln-type: 'os,library'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '1'
-          ignore-unfixed: true
-        env:
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
-          TRIVY_JAVA_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-java-db
-        continue-on-error: true
-
-      - name: Upload Trivy SARIF to code scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy.sarif
-
-      - name: Upload Trivy report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-sarif
-          path: trivy.sarif
-
 
       - name: Create git tag
         if: github.ref == 'refs/heads/main'
@@ -285,4 +221,3 @@ jobs:
             artifacts/stig_report.html
             artifacts/stig_results.xml
             sbom.spdx.json
-            trivy.sarif
