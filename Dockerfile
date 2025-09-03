@@ -1,6 +1,6 @@
-# hardn dockerfile
-FROM debian:trixie-slim AS builder
+# syntax=docker/dockerfile:1.7
 
+FROM debian:trixie-slim AS builder
 SHELL ["/bin/bash","-o","pipefail","-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -9,14 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 FROM debian:trixie-slim
-
 SHELL ["/bin/bash","-o","pipefail","-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
 ### author: Tim Burns
 # "May the odds forever be in our favor"
 
-# OCI + CIS labeling 
+# OCI + CIS labels
 LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
       org.opencontainers.image.description="HARDN-XDR with OpenSCAP STIG/CISA benchmark content on Debian trixie (testing)" \
       org.opencontainers.image.vendor="HARDN-XDR Project" \
@@ -40,7 +39,6 @@ LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
       security.logging="centralized" \
       security.audit="enabled"
 
-# minimal 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     TZ=UTC \
@@ -55,7 +53,6 @@ ENV LANG=C.UTF-8 \
 ARG HARDN_UID=10001
 ARG HARDN_GID=10001
 
-# Sources (keep defaults from image; add security + updates channels explicitly)
 RUN set -eux; \
     printf '%s\n' \
       "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" \
@@ -67,26 +64,23 @@ RUN set -eux; \
     apt-get -y upgrade; \
     \
     # Install ONLY runtime tools that do not pull Python
-    # (fail2ban is Python-based → removed to honor "no Python")
-    # rsyslog/ufw/systemd-style services removed (containers shouldn’t run daemons by default)
     apt-get install -y --no-install-recommends \
         bash coreutils findutils grep sed gawk tar xz-utils which \
         ca-certificates curl openssl \
         debsums wget lynis rkhunter \
         apt-listchanges needrestart unattended-upgrades \
-        auditd aide aide-common iptables \
+        aide aide-common iptables auditd \
     ; \
-    # Ensure Python didn’t sneak in via deps
+    # Ensure Python did not sneak in
     apt-mark auto 'python3*' >/dev/null 2>&1 || true; \
     apt-get purge -y 'python3*' >/dev/null 2>&1 || true; \
     apt-get autoremove -y --purge; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt/*
 
-# Create necessary dirs
 RUN mkdir -p /etc/sysctl.d /etc/iptables ${HARDN_XDR_HOME} /opt/hardn-xdr/docs /var/log/security
 
-# Non-root user (CIS 5.4 fix)
+# Non-root user (CIS 5.4)
 RUN groupadd -g "${HARDN_GID}" -r hardn \
  && useradd  -u "${HARDN_UID}" -g "${HARDN_GID}" -r -s /usr/sbin/nologin -d /home/hardn -c "HARDN-XDR User" hardn \
  && mkdir -p /home/hardn /var/lib/hardn /opt/hardn-xdr/state \
@@ -96,18 +90,18 @@ RUN groupadd -g "${HARDN_GID}" -r hardn \
 
 WORKDIR /opt/hardn-xdr
 
-# Copy application files (root-owned, 0755)
 COPY --chown=root:root --chmod=0755 deb.hardn.sh /usr/local/bin/
 COPY --chown=root:root --chmod=0755 entrypoint.sh /usr/local/bin/
 COPY --chown=root:root --chmod=0755 smoke_test.sh /usr/local/bin/
 COPY --chown=root:root src/sources/ /sources/
+
 
 RUN set -eux; \
     echo "* soft core 0" >> /etc/security/limits.conf; \
     echo "* hard core 0" >> /etc/security/limits.conf; \
     mkdir -p /etc/security; \
     touch /opt/hardn-xdr/.hardening_complete; \
-    # Consolidated, container-safe sysctls (avoid modules_disabled, bpf toggles that can break tooling)
+    # Container-safe sysctls file
     cat > /etc/sysctl.d/99-hardening.conf <<'SYSCTL'
 # Container-safe sysctl hardening
 kernel.kptr_restrict=2
@@ -128,7 +122,8 @@ net.ipv6.conf.default.accept_redirects=0
 fs.protected_fifos=2
 fs.protected_regular=2
 SYSCTL
-    sysctl -p /etc/sysctl.d/99-hardening.conf || true
+
+RUN sysctl -p /etc/sysctl.d/99-hardening.conf || true
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD bash -lc '\
@@ -138,7 +133,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 RUN /usr/local/bin/deb.hardn.sh || echo "Hardening setup (best-effort) complete"
 
-
 RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.defs && \
     sed -ri 's/^#?SHA_CRYPT_MAX_ROUNDS.*/SHA_CRYPT_MAX_ROUNDS 50000/' /etc/login.defs && \
     sed -ri 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs && \
@@ -146,17 +140,15 @@ RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.
     sed -ri 's/^PASS_WARN_AGE.*/PASS_WARN_AGE   7/' /etc/login.defs && \
     sed -ri 's/^UMASK.*/UMASK           027/' /etc/login.defs
 
-
 RUN chmod 700 /usr/bin/gcc* /usr/bin/g++* /usr/bin/cc* 2>/dev/null || true
 
-# cleanup
+# Final cleanup
 RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && find /usr/share -type f \( -name "*.gz" -o -name "*.bz2" -o -name "*.xz" \) -delete 2>/dev/null || true \
  && rm -rf /usr/share/locale/* /usr/share/i18n/* /usr/share/doc/* /usr/share/man/* 2>/dev/null || true \
  && find /var/log -type f -exec truncate -s 0 {} \; || true
 
-# Drop privileges by default (CIS 5.4)
+# Drop privileges by default (CIS 5.4 fix)
 USER ${HARDN_UID}:${HARDN_GID}
 
-# ENTRYPOINT runs as non-root. Keep minimal.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
