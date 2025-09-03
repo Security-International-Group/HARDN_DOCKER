@@ -85,7 +85,6 @@ RUN set -eux; \
         bash coreutils findutils grep sed gawk tar xz-utils which \
         # Security essentials \
         ca-certificates curl openssl \
-        python3-minimal \
         # Security tools (only essential ones) \
         rsyslog ufw fail2ban apparmor apparmor-utils \
         lynis debsums rkhunter wget \
