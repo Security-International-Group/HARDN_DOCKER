@@ -31,46 +31,44 @@ env:
   TRIVY_SEVERITY: "CRITICAL,HIGH"
   TRIVY_TIMEOUT: "10m"
   TRIVY_CACHE_DIR: "~/.cache/trivy"
-  # Tag built image locally; not pushed
   BUILT_IMAGE_TAG: "local-trixie:${{ github.sha }}"
 
 jobs:
   build-and-scan:
-    name: Build (FROM trixie) & Scan with Trivy
+    name: Build and scan
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout (full, for reproducible builds)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Verify Dockerfile uses Debian 13 (trixie) base
         id: verify
-        shell: bash
         run: |
           DOCKERFILE="${{ github.event.inputs.dockerfile || './Dockerfile' }}"
+
           if [[ ! -f "$DOCKERFILE" ]]; then
-            echo "::warning title=Dockerfile not found::${DOCKERFILE} not found. Creating a minimal trixie-based Dockerfile."
-            cat > "$DOCKERFILE" <<'EOF'
-            # syntax=docker/dockerfile:1.7
-            FROM debian:trixie
-            SHELL ["/bin/bash","-o","pipefail","-c"]
-            ENV DEBIAN_FRONTEND=noninteractive
-            RUN apt-get update \
-             && apt-get install -y --no-install-recommends ca-certificates curl \
-             && rm -rf /var/lib/apt/lists/*
-            CMD ["bash","-lc","cat /etc/os-release && sleep infinity"]
-            EOF
+            echo "::warning title=Dockerfile not found::$DOCKERFILE not found. Creating minimal one."
+            cat > "$DOCKERFILE" <<EOF
+          FROM debian:trixie
+          SHELL ["/bin/bash","-o","pipefail","-c"]
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update \
+           && apt-get install -y --no-install-recommends ca-certificates curl \
+           && rm -rf /var/lib/apt/lists/*
+          CMD ["bash","-lc","cat /etc/os-release && sleep infinity"]
+          EOF
           fi
 
-          # Best-effort check that FROM line contains trixie
-          if grep -Eiq '^\s*FROM\s+.+trixie' "$DOCKERFILE"; then
+          if grep -Eiq '^[[:space:]]*FROM[[:space:]]+.*trixie' "$DOCKERFILE"; then
             echo "base=trixie" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning title=Base image check::Dockerfile does not appear to use a trixie base. Continuing anyway."
+            echo "::warning title=Base image check::$DOCKERFILE does not use trixie"
             echo "base=unknown" >> "$GITHUB_OUTPUT"
           fi
+        shell: bash
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -81,10 +79,10 @@ jobs:
           context: ${{ github.event.inputs.context || '.' }}
           file: ${{ github.event.inputs.dockerfile || './Dockerfile' }}
           push: false
-          load: true         # load into local Docker for trivy image scan
+          load: true
           tags: ${{ env.BUILT_IMAGE_TAG }}
-          provenance: false  # disable attestation to speed up
-          sbom: false        # we'll generate SBOM via Trivy
+          provenance: false
+          sbom: false
           build-args: |
             GITHUB_REPOSITORY=${{ github.repository }}
             GITHUB_SHA=${{ github.sha }}
@@ -94,10 +92,9 @@ jobs:
       - name: Ensure Trivy cache dir
         run: mkdir -p ${{ env.TRIVY_CACHE_DIR }}
 
-      # Use official Trivy action (pinned by major). Replace @v0 with a commit SHA if you require exact pinning.
       - name: Trivy (SARIF) - vulnerabilities/misconfig/secrets
         id: trivy_sarif
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.33.0
         with:
           scan-type: "image"
           image-ref: "${{ env.BUILT_IMAGE_TAG }}"
@@ -113,7 +110,7 @@ jobs:
 
       - name: Trivy (JSON) - full findings
         id: trivy_json
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.33.0
         with:
           scan-type: "image"
           image-ref: "${{ env.BUILT_IMAGE_TAG }}"
@@ -162,7 +159,6 @@ jobs:
             exit 1
           fi
 
-          # Count HIGH+CRITICAL across results
           COUNT=$(jq '[..|objects|select(has("Severity"))|select(.Severity=="HIGH" or .Severity=="CRITICAL")] | length' trivy-image.json)
           echo "HIGH/CRITICAL count: $COUNT"
 
