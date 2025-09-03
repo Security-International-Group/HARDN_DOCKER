@@ -110,48 +110,61 @@ jobs:
           }
 
           # Warn if AppArmor not available
-          if ! sudo aa-status >/dev/null 2>&1; then
-            echo "::warning ::AppArmor not available on host"
-          fi
+          sudo aa-status >/dev/null 2>&1 || echo "::warning ::AppArmor not available on host"
 
-          CID=$(docker run -d \
+          NAME="hardn-test-$$"
+
+          # Run container as root, override entrypoint, keep read-only + tmpfs
+          docker run -d --name "$NAME" \
+            --entrypoint /bin/bash \
             --user 0:0 \
             --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=64m \
             --tmpfs /run:rw,noexec,nosuid,mode=0755,size=16m \
+            --tmpfs /home/hardn:rw,mode=0755,size=32m \
+            --tmpfs /opt/hardn-xdr:rw,mode=0755,size=64m \
+            --pids-limit 256 \
             --cap-drop ALL \
             --security-opt no-new-privileges \
             --security-opt apparmor=docker-default \
-            "$IMG" \
-            bash -lc 'sleep infinity')
+            "$IMG" -lc 'sleep infinity'
 
-          for i in {1..20}; do
-            docker exec "$CID" true && break || sleep 2
+          # Wait until container is responsive or bail
+          for i in {1..30}; do
+            if docker exec "$NAME" true 2>/dev/null; then break; fi
+            if ! docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
+              echo "::error ::Container exited during startup"
+              docker logs "$NAME" || true
+              docker rm -f "$NAME" >/dev/null 2>&1 || true
+              exit 1
+            fi
+            sleep 2
           done
 
           echo "[*] Smoke test"
-          docker exec "$CID" bash -lc '/usr/local/bin/smoke_test.sh'
+          docker exec "$NAME" bash -lc '/usr/local/bin/smoke_test.sh'
 
           echo "[*] STIG scan (auto-detect Debian content)"
-          CONTENT=$(docker exec "$CID" bash -lc 'shopt -s nullglob; files=(/usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml); [[ ${#files[@]} -gt 0 ]] && ls -1 ${files[@]} | sort -V | tail -n1 || true')
-          if [[ -n "$CONTENT" ]] && docker exec "$CID" bash -lc 'command -v oscap >/dev/null'; then
+          CONTENT=$(docker exec "$NAME" bash -lc 'shopt -s nullglob; files=(/usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml); [[ ${#files[@]} -gt 0 ]] && ls -1 ${files[@]} | sort -V | tail -n1 || true')
+          if [[ -n "$CONTENT" ]] && docker exec "$NAME" bash -lc 'command -v oscap >/dev/null'; then
             echo "Using content: $CONTENT"
-            docker exec "$CID" bash -lc \
+            docker exec "$NAME" bash -lc \
               "oscap xccdf eval \
                  --profile xccdf_org.ssgproject.content_profile_stig \
                  --report /tmp/stig_report.html \
                  --results /tmp/stig_results.xml \
-                 \"$CONTENT\" || echo 'STIG scan warnings'"
+                 \"$CONTENT\" || echo 'STIG scan completed with warnings'"
           else
-            echo "STIG content not available"
-            docker exec "$CID" bash -lc 'echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html'
-            docker exec "$CID" bash -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title></results>" > /tmp/stig_results.xml'
+            echo "STIG content not available; writing placeholders"
+            docker exec "$NAME" bash -lc 'echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html'
+            docker exec "$NAME" bash -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title></results>" > /tmp/stig_results.xml'
           fi
 
           mkdir -p artifacts
-          docker cp "$CID":/tmp/stig_report.html artifacts/stig_report.html || true
-          docker cp "$CID":/tmp/stig_results.xml artifacts/stig_results.xml || true
-          docker rm -f "$CID" >/dev/null
+          docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || true
+          docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || true
+
+          docker rm -f "$NAME" >/dev/null
 
       - name: Upload STIG artifacts
         uses: actions/upload-artifact@v4
