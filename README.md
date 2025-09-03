@@ -12,7 +12,13 @@ docker rm -f hardn-xdr 2>/dev/null || true
 
 # Run 
 docker run --name hardn-xdr -d hardn-xdr:deb13
+
 ```
+
+# Testing 
+
+- To test the current runtime status and CIS benchmarks,
+install and run "smoke_test.sh" and this will provide the testing benchmarks loaded into the OS. 
 ---
 ## Architecture 
 
