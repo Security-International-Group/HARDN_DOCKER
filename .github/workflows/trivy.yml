@@ -97,7 +97,7 @@ jobs:
       # Use official Trivy action (pinned by major). Replace @v0 with a commit SHA if you require exact pinning.
       - name: Trivy (SARIF) - vulnerabilities/misconfig/secrets
         id: trivy_sarif
-        uses: aquasecurity/trivy-action@v0.33
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: "image"
           image-ref: "${{ env.BUILT_IMAGE_TAG }}"
