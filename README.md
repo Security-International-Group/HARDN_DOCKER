@@ -43,4 +43,4 @@ docker run --name hardn-xdr -d hardn-xdr:deb12
 
 - Curent docker package build "under Construction" 
 - Current Docker image: Deployable
-- Currnet Debian 13: slim OS: Deployable
+- Current Debian OS "Trixie" 13:slim : Deployable
