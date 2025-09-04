@@ -2,57 +2,62 @@
 set -Eeuo pipefail
 umask 027
 
-echo "=== Entrypoint started ==="
-echo "Current user: $(id)"
-echo "Working directory: $(pwd)"
-echo "Arguments count: $#"
-echo "Environment: $(env | grep -E '(PATH|HOME|USER|SHELL)' | sort)"
+log() { printf '[entrypoint] %s\n' "$*"; }
 
-echo "Checking required directories..."
-for dir in /opt/hardn-xdr /sources /usr/local/bin; do
-  if [[ -d "$dir" ]]; then
-    echo "✓ $dir"
-  else
-    echo "✗ $dir (missing)"
-  fi
-done
+log "started"
+log "uid=$(id -u) gid=$(id -g) user=$(id -un)"
+log "pwd=$(pwd)"
+log "args($#): ${*:-<none>}"
+env | grep -E '^(PATH|HOME|USER|SHELL)=' | sort | sed 's/^/[env] /' || true
 
-echo "Checking required files..."
-for file in /usr/local/bin/deb.hardn.sh /usr/local/bin/entrypoint.sh; do
-  [[ -f "$file" ]] && echo "✓ $file" || echo "✗ $file (missing)"
-done
-
-# Decide what command to run
+# Resolve target command (don’t let empty $@ kill the shell)
 if [[ $# -gt 0 ]]; then
   TARGET_CMD=("$@")
 else
+  # benign default so CI “startup strategy” won’t exit immediately
   TARGET_CMD=(/bin/sh -c 'while true; do sleep 30; done')
 fi
-echo "Resolved command: ${TARGET_CMD[*]}"
+log "resolved command: ${TARGET_CMD[*]}"
 
-if [[ "$(id -u)" -eq 0 ]]; then
-  # One-time hardening during first root start
-  if [[ ! -f /opt/hardn-xdr/.hardening_complete ]]; then
-    echo "Running hardening script as root..."
-    if /usr/local/bin/deb.hardn.sh; then
-      echo "Hardening script completed successfully"
-    else
-      echo "WARN: Hardening script returned non-zero (continuing)"
-    fi
-    touch /opt/hardn-xdr/.hardening_complete
-  else
-    echo "Hardening already completed, skipping."
-  fi
+# Minimal presence checks (won’t fail startup)
+for d in /opt/hardn-xdr /usr/local/bin; do
+  [[ -d "$d" ]] && log "dir ok: $d" || log "dir missing: $d"
+done
+for f in /usr/local/bin/deb.hardn.sh /usr/local/bin/entrypoint.sh; do
+  [[ -f "$f" ]] && log "file ok: $f" || log "file missing: $f"
+done
 
-  # Ensure user and dirs
-  useradd -m -u 10001 -s /bin/bash hardn 2>/dev/null || true
-  install -d -o hardn -g hardn -m 0755 /home/hardn /var/lib/hardn /opt/hardn-xdr/state
-
-  # Drop privileges correctly:
-  # su runs /bin/sh -c '...' where $0 and $@ come from args after '--'
-  echo "Switching to user 'hardn' and execing command…"
-  exec su -s /bin/sh -c 'cd /opt/hardn-xdr && exec "$0" "$@"' hardn -- "${TARGET_CMD[@]}"
-else
-  echo "Running as non-root, execing command…"
+# === Option B logic ===
+# If we are NOT root, skip hardening and user/perm work.
+if [[ "$(id -u)" -ne 0 ]]; then
+  log "non-root detected; skipping hardening and privilege drop"
   exec "${TARGET_CMD[@]}"
 fi
+
+# Root path: do one-time hardening, then drop to 'hardn' if present
+log "root detected; performing one-time hardening if needed"
+
+if [[ ! -f /opt/hardn-xdr/.hardening_complete ]]; then
+  if /usr/local/bin/deb.hardn.sh; then
+    log "hardening completed successfully"
+  else
+    log "WARNING: hardening returned non-zero; continuing"
+  fi
+  touch /opt/hardn-xdr/.hardening_complete || true
+fi
+
+# Ensure runtime dirs (idempotent)
+install -d -m 0755 /opt/hardn-xdr/state /var/lib/hardn /home/hardn || true
+
+# Ensure the 'hardn' user exists (idempotent)
+if ! id -u hardn >/dev/null 2>&1; then
+  useradd -m -u 10001 -s /bin/bash hardn || true
+fi
+
+# Set ownership where it’s safe
+chown -R hardn:hardn /opt/hardn-xdr /var/lib/hardn /home/hardn || true
+
+# Drop privileges correctly:
+# With `sh -c`, $0 is the first arg after `--` and $@ are the rest.
+log "dropping privileges to 'hardn' and execing command"
+exec su -s /bin/sh -c 'cd /opt/hardn-xdr && exec "$0" "$@"' hardn -- "${TARGET_CMD[@]}"
