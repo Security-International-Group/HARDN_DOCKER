@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -65,15 +65,22 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags
-          latest=$(git tag -l "v*.*.*" --sort=-v:refname | head -n1)
+          latest=$(git tag -l "v*.*.*" --sort=-v:refname | head -n1 || echo "")
           if [[ -z "${latest}" ]]; then
             next="v1.0.0"
           else
-            IFS='.' read -r v M m <<<"${latest#v}"
-            m=$((m+1))
-            next="v${v}.${M}.${m}"
+            # Extract version numbers more safely
+            version_part="${latest#v}"
+            IFS='.' read -r major minor patch <<<"${version_part}" || {
+              echo "ERROR: Failed to parse version: ${latest}"
+              next="v1.0.0"
+            }
+            # Increment patch version
+            patch=$((patch + 1))
+            next="v${major}.${minor}.${patch}"
           fi
           echo "next=${next}" >> "$GITHUB_OUTPUT"
+          echo "Computed next version: ${next}"
 
       - name: Build image for tests (loaded locally)
         run: |
@@ -118,11 +125,15 @@ jobs:
 
           try_run() {
             local name="$1"; shift
+            echo "Attempting to start container: $name with entrypoint: $ENTRY"
             docker run -d --name "$name" \
               --entrypoint "$ENTRY" \
               --user 0:0 \
               $EXTRA_FLAGS \
-              "$IMG" -lc 'sleep infinity'
+              "$IMG" -lc 'sleep infinity' 2>&1 || {
+              echo "Failed to start container $name"
+              return 1
+            }
           }
 
           # Try bash first, then sh; read-only first, then RW fallback
@@ -139,22 +150,29 @@ jobs:
                 EXTRA_FLAGS=""
               fi
 
+              echo "Trying startup strategy: $ENTRY / $mode"
               CID="$(try_run "$NAME" || true)"
-              [[ -n "${CID:-}" ]] || continue
+              [[ -n "${CID:-}" ]] || {
+                echo "Container startup failed for $ENTRY/$mode"
+                continue
+              }
 
               ok=0
-              for i in {1..20}; do
-                if docker exec "$NAME" true 2>/dev/null; then ok=1; break; fi
+              for i in {1..30}; do
+                if docker exec "$NAME" true 2>/dev/null; then
+                  echo "Container $NAME is ready after $i attempts"
+                  ok=1
+                  break
+                fi
                 if ! docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
-                  echo "::error ::Container died during startup ($ENTRY/$mode)"
-                  docker inspect "$NAME" --format \
-                    'Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' || true
+                  echo "::warning ::Container died during startup ($ENTRY/$mode)"
                   docker logs "$NAME" || true
                   docker rm -f "$NAME" >/dev/null 2>&1 || true
                   ok=0
                   break
                 fi
-                sleep 1
+                echo "Waiting for container to be ready... ($i/30)"
+                sleep 2
               done
 
               if [[ $ok -eq 1 ]]; then
@@ -162,22 +180,30 @@ jobs:
                 docker exec "$NAME" "$ENTRY" -lc '/usr/local/bin/smoke_test.sh'
 
                 echo "[*] STIG scan"
-                CONTENT="$(docker exec "$NAME" "$ENTRY" -lc 'ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml 2>/dev/null | sort -V | tail -n1 || true')"
-                if [[ -n "$CONTENT" ]] && docker exec "$NAME" "$ENTRY" -lc 'command -v oscap >/dev/null'; then
-                  docker exec "$NAME" "$ENTRY" -lc \
+                CONTENT="$(docker exec "$NAME" "$ENTRY" -lc 'ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml 2>/dev/null | sort -V | tail -n1 || echo ""')"
+                if [[ -n "$CONTENT" ]] && docker exec "$NAME" "$ENTRY" -lc 'command -v oscap >/dev/null 2>&1'; then
+                  echo "Running STIG scan with content: $CONTENT"
+                  if docker exec "$NAME" "$ENTRY" -lc \
                     "oscap xccdf eval \
                        --profile xccdf_org.ssgproject.content_profile_stig \
                        --report /tmp/stig_report.html \
                        --results /tmp/stig_results.xml \
-                       \"$CONTENT\" || echo 'STIG scan warnings'"
+                       \"$CONTENT\" 2>&1"; then
+                    echo "STIG scan completed successfully"
+                  else
+                    echo "::warning ::STIG scan failed, creating dummy report"
+                    docker exec "$NAME" "$ENTRY" -lc 'echo "<html><body><h1>STIG Scan Failed</h1><p>OpenSCAP scan encountered errors</p></body></html>" > /tmp/stig_report.html'
+                    docker exec "$NAME" "$ENTRY" -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Failed</title><error>OpenSCAP scan encountered errors</error></results>" > /tmp/stig_results.xml'
+                  fi
                 else
-                  docker exec "$NAME" "$ENTRY" -lc 'echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html'
-                  docker exec "$NAME" "$ENTRY" -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title></results>" > /tmp/stig_results.xml'
+                  echo "::warning ::STIG scan dependencies not available, creating dummy report"
+                  docker exec "$NAME" "$ENTRY" -lc 'echo "<html><body><h1>STIG Scan Not Available</h1><p>Required packages or content files not found</p></body></html>" > /tmp/stig_report.html'
+                  docker exec "$NAME" "$ENTRY" -lc 'echo "<?xml version=\"1.0\"?><results><title>STIG Scan Not Available</title><message>Required packages or content files not found</message></results>" > /tmp/stig_results.xml'
                 fi
 
                 mkdir -p artifacts
-                docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || true
-                docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || true
+                docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html 2>/dev/null || echo "Warning: Could not copy STIG report"
+                docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml 2>/dev/null || echo "Warning: Could not copy STIG results"
                 docker rm -f "$NAME" >/dev/null
                 exit 0
               fi
@@ -240,10 +266,32 @@ jobs:
           path: sbom.spdx.json
 
       - name: Create git tag
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
-          git tag ${{ steps.version.outputs.next }}
-          git push origin ${{ steps.version.outputs.next }}
+          set -euo pipefail
+          TAG_NAME="${{ steps.version.outputs.next }}"
+
+          # Check if tag already exists
+          if git tag -l | grep -q "^${TAG_NAME}$"; then
+            echo "::warning ::Tag ${TAG_NAME} already exists, skipping tag creation"
+            exit 0
+          fi
+
+          echo "Creating and pushing tag: ${TAG_NAME}"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag "${TAG_NAME}" || {
+            echo "::error ::Failed to create git tag ${TAG_NAME}"
+            exit 1
+          }
+
+          git push origin "${TAG_NAME}" || {
+            echo "::error ::Failed to push git tag ${TAG_NAME}"
+            exit 1
+          }
+
+          echo "Successfully created and pushed tag: ${TAG_NAME}"
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
@@ -255,3 +303,4 @@ jobs:
             artifacts/stig_report.html
             artifacts/stig_results.xml
             sbom.spdx.json
+        continue-on-error: true

@@ -62,5 +62,5 @@ if [[ "$(id -u)" -eq 0 ]]; then
   exec su - hardn -c "cd /opt/hardn-xdr && exec \"\$@\"" -- "${@:-while true; do sleep 30; done}"
 else
   echo "Running as non-root user, executing command..."
-  exec "${@:-while true; do sleep 30; done}"
+  exec sh -c "${@:-while true; do sleep 30; done}"
 fi

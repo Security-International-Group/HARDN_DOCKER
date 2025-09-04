@@ -47,7 +47,11 @@ setup_network_monitoring() {
     done
 
     # Apply network settings
-    sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || true
+    if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
+        echo "Container environment detected - skipping sysctl application"
+    else
+        sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || echo "Warning: Some sysctl settings could not be applied"
+    fi
 
     echo "Network monitoring configured"
 }

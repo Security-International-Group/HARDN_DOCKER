@@ -35,7 +35,8 @@ LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
       security.no.new.privileges="true" \
       security.healthcheck="enabled" \
       security.logging="centralized" \
-      security.audit="enabled"
+      security.audit="enabled" \
+      org.opencontainers.image.documentation="AppArmor may not be fully functional in container environments due to kernel limitations"
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
@@ -52,6 +53,8 @@ ARG HARDN_UID=10001
 ARG HARDN_GID=10001
 
 RUN set -eux; \
+    # Remove default sources to avoid conflicts
+    rm -f /etc/apt/sources.list.d/debian.sources; \
     printf '%s\n' \
       "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" \
       "deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware" \
@@ -91,6 +94,7 @@ WORKDIR /opt/hardn-xdr
 COPY --chown=hardn:hardn --chmod=0755 deb.hardn.sh /usr/local/bin/
 COPY --chown=hardn:hardn --chmod=0755 entrypoint.sh /usr/local/bin/
 COPY --chown=hardn:hardn --chmod=0755 smoke_test.sh /usr/local/bin/
+COPY --chown=hardn:hardn --chmod=0755 health_check.sh /usr/local/bin/
 COPY --chown=root:root src/sources/ /sources/
 
 

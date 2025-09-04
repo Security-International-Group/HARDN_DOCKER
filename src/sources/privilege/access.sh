@@ -41,22 +41,51 @@ remove_dangerous_suid() {
 configure_pam_security() {
     echo "Configuring PAM security..."
 
-    # Configure password quality
+    # Ensure PAM packages are available
+    if ! command -v pam-auth-update >/dev/null 2>&1; then
+        echo "Warning: PAM tools not available"
+        return 1
+    fi
+
+    # Install pam_pwquality if not available
+    if ! dpkg -l | grep -q libpam-pwquality; then
+        echo "Installing libpam-pwquality..."
+        apt-get update && apt-get install -y libpam-pwquality || {
+            echo "Failed to install libpam-pwquality"
+            return 1
+        }
+    fi
+
+    # Configure password quality - ensure pam_pwquality is available
     if [ -f /etc/pam.d/common-password ]; then
-        sed -i 's/pam_cracklib.so/pam_pwquality.so minlen=8/' /etc/pam.d/common-password 2>/dev/null || true
+        # Check if pam_pwquality is already configured with minlen=8
+        if ! grep -q "pam_pwquality.so.*minlen=8" /etc/pam.d/common-password; then
+            # Add pam_pwquality configuration before pam_unix
+            sed -i '/password.*\[success=1 default=ignore\].*pam_unix.so/i password requisite pam_pwquality.so minlen=8' /etc/pam.d/common-password 2>/dev/null || {
+                echo "Failed to update common-password"
+                return 1
+            }
+        fi
+    else
+        echo "Warning: /etc/pam.d/common-password not found"
+        return 1
     fi
 
     # Configure account locking
     if [ -f /etc/pam.d/common-auth ]; then
-        echo "auth required pam_tally2.so deny=5 unlock_time=900" >> /etc/pam.d/common-auth 2>/dev/null || true
+        if ! grep -q "pam_tally2.so" /etc/pam.d/common-auth; then
+            echo "auth required pam_tally2.so deny=5 unlock_time=900" >> /etc/pam.d/common-auth 2>/dev/null || true
+        fi
     fi
 
     # Configure session limits
     if [ -f /etc/pam.d/common-session ]; then
-        echo "session required pam_limits.so" >> /etc/pam.d/common-session 2>/dev/null || true
+        if ! grep -q "pam_limits.so" /etc/pam.d/common-session; then
+            echo "session required pam_limits.so" >> /etc/pam.d/common-session 2>/dev/null || true
+        fi
     fi
 
-    echo "PAM security configured"
+    echo "PAM security configured successfully"
 }
 
 # User Access Control
@@ -90,7 +119,11 @@ prevent_privilege_escalation() {
     echo "kernel.kexec_load_disabled = 1" >> /etc/sysctl.conf
 
     # Apply settings
-    sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || true
+    if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
+        echo "Container environment detected - skipping sysctl application"
+    else
+        sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || echo "Warning: Some sysctl settings could not be applied"
+    fi
 
     echo "Privilege escalation prevention configured"
 }

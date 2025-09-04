@@ -318,11 +318,9 @@ run_stig_checks() {
         echo "│ • Ensure container best practices are followed              │"
         echo "│ • Ensure CVE-2025-45582 protection is active                │"
         echo "│ • Verify advanced tar security functions                    │"
-    fi
-
         echo "└─────────────────────────────────────────────────────────────┘"
         echo ""
-
+    fi
     return $failed
 }
 

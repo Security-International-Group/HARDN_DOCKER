@@ -36,18 +36,28 @@ fi
 echo ""
 echo "=== CIS 5.1: AppArmor Security ==="
 if command -v apparmor_status >/dev/null 2>&1; then
-    APPARMOR_STATUS=$(apparmor_status 2>/dev/null | grep -E "(profiles are loaded|profiles are in)" | head -1 || echo "unknown")
-    if [ "$APPARMOR_STATUS" != "unknown" ]; then
-        echo "[PASS] AppArmor is enabled: $APPARMOR_STATUS"
-        # Check if any profiles are enforcing
-        ENFORCING_COUNT=$(apparmor_status 2>/dev/null | grep -c "enforce" 2>/dev/null || echo "0")
-        if [ "$ENFORCING_COUNT" -gt 0 ] 2>/dev/null; then
-            echo "[PASS] $ENFORCING_COUNT AppArmor profiles are in enforcing mode"
+    # First check if AppArmor is available in the kernel
+    if [ -d /sys/kernel/security/apparmor/ ] 2>/dev/null || [ -f /sys/module/apparmor/parameters/enabled ]; then
+        APPARMOR_STATUS=$(apparmor_status 2>/dev/null | grep -E "(profiles are loaded|profiles are in)" | head -1 || echo "unknown")
+        if [ "$APPARMOR_STATUS" != "unknown" ]; then
+            echo "[PASS] AppArmor is enabled: $APPARMOR_STATUS"
+            # Check if any profiles are enforcing
+            ENFORCING_COUNT=$(apparmor_status 2>/dev/null | grep -c "enforce" 2>/dev/null || echo "0")
+            if [ "$ENFORCING_COUNT" -gt 0 ] 2>/dev/null; then
+                echo "[PASS] $ENFORCING_COUNT AppArmor profiles are in enforcing mode"
+            else
+                echo "[WARN] No AppArmor profiles are in enforcing mode"
+            fi
         else
-            echo "[WARN] No AppArmor profiles are in enforcing mode"
+            # Check if AppArmor service is running as alternative
+            if pgrep -f apparmor >/dev/null 2>&1 || [ -f /var/run/apparmor/apparmor ]; then
+                echo "[PASS] AppArmor service is running"
+            else
+                echo "[WARN] AppArmor status unknown - may not be fully active"
+            fi
         fi
     else
-        echo "[WARN] AppArmor status unknown - may not be fully active"
+        echo "[INFO] AppArmor not supported in this kernel environment"
     fi
 else
     echo "[INFO] AppArmor not available in this environment"
@@ -455,4 +465,40 @@ echo "[PASS] Health Monitoring: ACTIVE"
 echo "[PASS] CIS Compliance: PARTIAL (Container-optimized)"
 echo ""
 echo "smoke: OK"
+
+echo "Switching to hardn user..."
+echo "Checking for essential tools..."
+
+# Check openssl
+if command -v openssl >/dev/null 2>&1; then
+    echo "[INFO] openssl is available"
+else
+    echo "[FAIL] openssl is not available"
+    exit 1
+fi
+
+# Check oscap
+if command -v oscap >/dev/null 2>&1; then
+    echo "[INFO] oscap is available"
+else
+    echo "[INFO] oscap not available (STIG scans will be skipped)"
+fi
+
+# Check aide
+if command -v aide >/dev/null 2>&1; then
+    echo "[INFO] aide is available"
+else
+    echo "[FAIL] aide is not available"
+    exit 1
+fi
+
+# Check crypto policies
+if command -v update-crypto-policies >/dev/null 2>&1; then
+    echo "[INFO] Crypto policies are available"
+else
+    echo "[INFO] Crypto policies not available"
+fi
+
+echo "smoke: OK"
+
 exit 0

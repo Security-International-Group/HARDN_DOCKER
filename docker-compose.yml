@@ -10,11 +10,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
           cpus: '1.0'
         reservations:
-          memory: 512M
-          cpus: '0.5'
+          memory: 3000M
+          cpus: '1.5'
 
     # Security and isolation (FIXED for compatibility)
     security_opt:
