@@ -2,6 +2,8 @@
 - A Deployable Debian 13: trixie , HARDN/STIG/CIS compliant Dockerfile image
 ---
 [![Docker](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml)
+[![Trivy](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml/badge.svg)](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml)
+
 ## Build
 ```bash
 # Build 
