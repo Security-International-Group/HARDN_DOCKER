@@ -1,66 +1,58 @@
 #!/bin/bash
-
 set -Eeuo pipefail
 umask 027
 
 echo "=== Entrypoint started ==="
 echo "Current user: $(id)"
 echo "Working directory: $(pwd)"
-echo "Arguments: $*"
+echo "Arguments count: $#"
 echo "Environment: $(env | grep -E '(PATH|HOME|USER|SHELL)' | sort)"
 
-# Debug: Check if required directories exist
 echo "Checking required directories..."
 for dir in /opt/hardn-xdr /sources /usr/local/bin; do
-    if [[ -d "$dir" ]]; then
-        echo "✓ Directory exists: $dir"
-        ls -la "$dir" | head -3
-    else
-        echo "✗ Directory missing: $dir"
-    fi
+  if [[ -d "$dir" ]]; then
+    echo "✓ $dir"
+  else
+    echo "✗ $dir (missing)"
+  fi
 done
 
-# Debug: Check if required files exist
 echo "Checking required files..."
 for file in /usr/local/bin/deb.hardn.sh /usr/local/bin/entrypoint.sh; do
-    if [[ -f "$file" ]]; then
-        echo "✓ File exists: $file"
-        ls -la "$file"
-    else
-        echo "✗ File missing: $file"
-    fi
+  [[ -f "$file" ]] && echo "✓ $file" || echo "✗ $file (missing)"
 done
 
+# Decide what command to run
+if [[ $# -gt 0 ]]; then
+  TARGET_CMD=("$@")
+else
+  TARGET_CMD=(/bin/sh -c 'while true; do sleep 30; done')
+fi
+echo "Resolved command: ${TARGET_CMD[*]}"
+
 if [[ "$(id -u)" -eq 0 ]]; then
-  if [ -f "/opt/hardn-xdr/.hardening_complete" ]; then
-    echo "Hardening already completed during build, skipping..."
-  else
-    echo "Running as root, executing hardening script..."
+  # One-time hardening during first root start
+  if [[ ! -f /opt/hardn-xdr/.hardening_complete ]]; then
+    echo "Running hardening script as root..."
     if /usr/local/bin/deb.hardn.sh; then
       echo "Hardening script completed successfully"
-      touch /opt/hardn-xdr/.hardening_complete
     else
-      echo "WARN: Hardening script completed with warnings/errors, continuing..."
-      touch /opt/hardn-xdr/.hardening_complete
+      echo "WARN: Hardening script returned non-zero (continuing)"
     fi
+    touch /opt/hardn-xdr/.hardening_complete
+  else
+    echo "Hardening already completed, skipping."
   fi
-  
-  mkdir -p /home/hardn
-  chown hardn:hardn /home/hardn
-  chmod 755 /home/hardn
-  
-  mkdir -p /var/lib/hardn
-  chown -R hardn:hardn /var/lib/hardn
-  chmod 755 /var/lib/hardn
-  
-  STATE_DIR="/opt/hardn-xdr/state"
-  mkdir -p "$STATE_DIR"
-  chown -R hardn:hardn "$STATE_DIR"
-  chmod 755 "$STATE_DIR"
-  
-  echo "Switching to hardn user..."
-  exec su - hardn -c "cd /opt/hardn-xdr && exec \"\$@\"" -- "${@:-while true; do sleep 30; done}"
+
+  # Ensure user and dirs
+  useradd -m -u 10001 -s /bin/bash hardn 2>/dev/null || true
+  install -d -o hardn -g hardn -m 0755 /home/hardn /var/lib/hardn /opt/hardn-xdr/state
+
+  # Drop privileges correctly:
+  # su runs /bin/sh -c '...' where $0 and $@ come from args after '--'
+  echo "Switching to user 'hardn' and execing command…"
+  exec su -s /bin/sh -c 'cd /opt/hardn-xdr && exec "$0" "$@"' hardn -- "${TARGET_CMD[@]}"
 else
-  echo "Running as non-root user, executing command..."
-  exec sh -c "${@:-while true; do sleep 30; done}"
+  echo "Running as non-root, execing command…"
+  exec "${TARGET_CMD[@]}"
 fi
