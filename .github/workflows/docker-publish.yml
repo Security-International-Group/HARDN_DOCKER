@@ -108,7 +108,7 @@ jobs:
       - name: Run hardening + smoke + STIG scan (root, entrypoint bypass)
         shell: bash
         env:
-          IMAGE_CI: ghcr.io/${{ github.repository }}:ci-test
+          IMAGE_CI: ghcr.io/${{ steps.repo.outputs.name }}:ci-test
           NAME: hardn-test-${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -127,7 +127,7 @@ jobs:
               echo "[scan] whoami: $(whoami)  id: $(id)"
               echo "[scan] PWD: $(pwd)"
 
-              # Optional: best-effort hardening/smoke
+              # Optional best-effort hardening/smoke
               if [[ -x /usr/local/bin/deb.hardn.sh ]]; then
                 echo "[scan] running deb.hardn.sh"
                 /usr/local/bin/deb.hardn.sh || echo "[scan] deb.hardn.sh returned non-zero"
@@ -137,7 +137,7 @@ jobs:
                 /usr/local/bin/smoke_test.sh || echo "[scan] smoke_test.sh returned non-zero"
               fi
 
-              # Try STIG scan if tools/content are present; otherwise write stub artifacts
+              # STIG scan if tooling/content exist; otherwise create stub artifacts
               CONTENT=$(ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml 2>/dev/null | sort -V | tail -n1 || true)
               if command -v oscap >/dev/null 2>&1 && [[ -n "${CONTENT}" ]]; then
                 echo "[scan] OpenSCAP content: ${CONTENT}"
@@ -161,15 +161,12 @@ jobs:
               echo "[scan] done"
             '
 
-          # Run and stream logs
           docker start -a "$NAME"
 
-          # Collect artifacts
           mkdir -p artifacts
           docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || echo "[warn] no report"
           docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || echo "[warn] no results"
 
-          # Cleanup
           docker rm -f "$NAME" >/dev/null 2>&1 || true
       # -------------------------------------------------------------------------
 
