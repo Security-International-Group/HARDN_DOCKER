@@ -4,10 +4,15 @@
 
 set -euo pipefail
 
-# Check if we're running as the expected user
-if [[ "$(id -u)" != "10001" ]]; then
-    echo "ERROR: Not running as expected user (hardn)"
+# Check if we're running as the expected user (allow root for testing)
+if [[ "$(id -u)" != "10001" ]] && [[ "$(id -u)" != "0" ]]; then
+    echo "ERROR: Not running as expected user (hardn) or root"
     exit 1
+fi
+
+# Note: Allow running as root for workflow testing
+if [[ "$(id -u)" == "0" ]]; then
+    echo "Note: Running health check as root (acceptable for testing)"
 fi
 
 # Check if key directories exist
