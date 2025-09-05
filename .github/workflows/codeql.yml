@@ -1,4 +1,4 @@
-name: codeQL
+name: CodeQL
 
 on:
   push:
@@ -24,11 +24,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      # --- CodeQL (no language matrix; autodetect; no manual build) ---
+      # --- CodeQL ---
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          # Omit 'languages' to let CodeQL auto-detect supported languages
           build-mode: none
           queries: security-extended,security-and-quality
 
@@ -37,7 +36,6 @@ jobs:
         with:
           category: "/tool:codeql"
 
-      # --- Semgrep: scan ALL paths and upload SARIF to Code Scanning ---
       - name: Semgrep scan (all files)
         uses: returntocorp/semgrep-action@v1
         with:
@@ -45,14 +43,10 @@ jobs:
             p/owasp-top-ten
             p/security-audit
             p/secrets
-          generateSarif: true
-          sarif: semgrep.sarif
+          output: semgrep.sarif
+          output-format: sarif
           auditOn: push
-          # Force scanning of all paths (not just changed files)
           scanAllPaths: true
-        env:
-          # Speeds up downloads; optional
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
       - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v3
