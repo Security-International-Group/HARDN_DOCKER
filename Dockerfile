@@ -7,39 +7,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ### author: Tim Burns
 # "May the odds forever be in our favor"
 
-
 ARG VCS_REF=""
 ARG BUILD_DATE=""
 ARG VERSION="1.0.1"
 ARG REPO_URL="https://github.com/opensource-for-freedom/hardn_debian_docker_image"
-
-# OCI + Security labels ----
-LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
-      org.opencontainers.image.description="Hardened Debian 13 (trixie) base with CIS-aligned configs; STIG tooling installed optionally via build-arg." \
-      org.opencontainers.image.vendor="HARDN-XDR Project" \
-      org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.url="${REPO_URL}" \
-      org.opencontainers.image.source="${REPO_URL}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      cis.docker.benchmark.version="1.13.0" \
-      cis.docker.benchmark.compliance="enhanced" \
-      security.hardening.level="high" \
-      security.cis.benchmark="docker-1.13.0" \
-      security.stig.compliance="enhanced" \
-      security.capabilities="restricted" \
-      security.privileged="false" \
-      security.user.namespace="enabled" \
-      security.seccomp="enabled" \
-      security.apparmor="enabled" \
-      security.selinux="n/a" \
-      security.readonly.rootfs="true" \
-      security.no.new.privileges="true" \
-      security.healthcheck="enabled" \
-      security.logging="centralized" \
-      security.audit="enabled" \
-      org.opencontainers.image.documentation="AppArmor may not be fully functional in container environments due to kernel limitations"
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
@@ -74,13 +45,14 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         bash coreutils findutils grep sed gawk tar xz-utils which \
         ca-certificates curl openssl \
-        debsums wget iptables auditd aide aide-common; \
+        debsums wget iptables auditd aide aide-common \
+        libarchive-tools; \
     \
     if [ "${WITH_STIG_TOOLS}" = "1" ]; then \
       apt-get install -y --no-install-recommends openscap-scanner ssg-debian; \
     fi; \
     \
-    # Ensure Python didn’t sneak in... 
+    # Ensure Python didn’t sneak in...
     apt-mark auto 'python3*' >/dev/null 2>&1 || true; \
     apt-get purge -y 'python3*' >/dev/null 2>&1 || true; \
     apt-get autoremove -y --purge; \
@@ -132,16 +104,77 @@ net.ipv6.conf.default.accept_redirects=0
 fs.protected_fifos=2
 fs.protected_regular=2
 SYSCTL
-#### sysctl -p has no effect at build time, but keep for layer validation
+# sysctl -p has no effect at build time; keep for layer validation
 RUN sysctl -p /etc/sysctl.d/99-hardening.conf || true
 
+# --------- Hardening additions to satisfy scan recommendations ---------
+
+# 1) TLS private-key ownership/permissions
+RUN mkdir -p /etc/ssl/private \
+ && chown -R root:root /etc/ssl/private \
+ && chmod 0700 /etc/ssl/private \
+ && find /etc/ssl/private -type f -exec chmod 0600 {} \; || true
+
+# 2) System-wide TLS policy (OpenSSL ≥ TLS1.2, SecLevel=2) + GnuTLS legacy disable
+RUN mkdir -p /etc/ssl/openssl.cnf.d \
+ && cat > /etc/ssl/openssl.cnf.d/10-hardn.cnf <<'EOF'
+[openssl_init]
+ssl_conf = ssl_sect
+
+[ssl_sect]
+system_default = system_default_sect
+
+[system_default_sect]
+MinProtocol = TLSv1.2
+CipherString = DEFAULT:@SECLEVEL=2
+EOF
+RUN mkdir -p /etc/gnutls \
+ && printf '[overrides]\n' > /etc/gnutls/config \
+ && printf 'disabled-version = ssl3.0\n' >> /etc/gnutls/config \
+ && printf 'disabled-version = tls1.0\n' >> /etc/gnutls/config \
+ && printf 'disabled-version = tls1.1\n' >> /etc/gnutls/config
+
+# 3) Drop common setuid/setgid bits (except sudo)
+RUN find /usr -xdev -perm /6000 -type f ! -path '/usr/bin/sudo' -exec chmod ug-s {} + 2>/dev/null || true
+
+# 4) Ensure /tmp and /var/tmp are sticky and world-writable as expected (1777)
+RUN chmod 1777 /tmp /var/tmp || true
+
+# 5) Safe tar wrapper for untrusted archives (mitigate traversal/link tricks)
+RUN bash -lc 'cat > /usr/local/bin/tar << "EOF"
+#!/usr/bin/env bash
+set -euo pipefail
+_real="/usr/bin/tar"
+
+# detect extract mode and target archive
+extract=0; prev=""; archive=""
+for a in "$@"; do
+  [[ "$a" == "-x" || "$a" == "--extract" ]] && extract=1
+  if [[ "$prev" == "-f" || "$prev" == "--file" ]]; then archive="$a"; prev=""; continue; fi
+  [[ "$a" == "-f" || "$a" == "--file" ]] && prev="$a"
+done
+
+if [[ $extract -eq 1 && -n "${archive:-}" ]]; then
+  # Reject absolute paths and parent traversals
+  "$_real" -tf "$archive" | awk '\''/^(\/|.*\/\.\.\/|^\.\.\/)/ {print "E: unsafe path: " $0 > "/dev/stderr"; bad=1} END {exit bad}'\''
+  # Reject symlink/hardlink entries
+  if "$_real" -tvf "$archive" | grep -Eq "^[lh]"; then
+    echo "E: archive contains link entries; refusing extraction" >&2; exit 1
+  fi
+  exec "$_real" "$@" --no-same-owner --no-same-permissions --keep-old-files --no-overwrite-dir --delay-directory-restore
+else
+  exec "$_real" "$@"
+fi
+EOF
+chmod 0755 /usr/local/bin/tar'
+
+# ----------------------------------------------------------------------
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD bash -lc '\
     test -r /etc/os-release || { echo "/etc/os-release missing"; exit 1; }; \
     : > /tmp/.hc.$$ && rm -f /tmp/.hc.$$ || { echo "/tmp not writable"; exit 1; }; \
     echo "OK"; exit 0'
-
 
 RUN /usr/local/bin/deb.hardn.sh || echo "HARDN setup complete"
 
@@ -156,20 +189,38 @@ RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.
 # Hide compilers if present (usually not on slim)
 RUN chmod 700 /usr/bin/gcc* /usr/bin/g++* /usr/bin/cc* 2>/dev/null || true
 
-
 RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && find /usr/share -type f \( -name "*.gz" -o -name "*.bz2" -o -name "*.xz" \) -delete 2>/dev/null || true \
  && rm -rf /usr/share/locale/* /usr/share/i18n/* /usr/share/doc/* /usr/share/man/* 2>/dev/null || true \
  && find /var/log -type f -exec truncate -s 0 {} \; || true
 
-
+# ---- OCI labels (final stage, cache-friendly placement) ----
 LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
       org.opencontainers.image.description="Multi-arch (amd64/arm64) hardened Debian 13 (Trixie) base with CIS-aligned defaults, non-root user, umask 027, baseline sysctl, auditd & AIDE, healthcheck, and read-only-rootfs friendly. Optional STIG tools (OpenSCAP+SSG) via WITH_STIG_TOOLS=1." \
       org.opencontainers.image.vendor="HARDN-XDR Project" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.url="${REPO_URL}" \
-      org.opencontainers.image.source="${REPO_URL}"
+      org.opencontainers.image.source="${REPO_URL}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.documentation="https://github.com/opensource-for-freedom/hardn_debian_docker_image#readme" \
+      cis.docker.benchmark.version="1.13.0" \
+      cis.docker.benchmark.compliance="enhanced" \
+      security.hardening.level="high" \
+      security.cis.benchmark="docker-1.13.0" \
+      security.stig.compliance="enhanced" \
+      security.capabilities="restricted" \
+      security.privileged="false" \
+      security.user.namespace="enabled" \
+      security.seccomp="enabled" \
+      security.apparmor="enabled" \
+      security.selinux="n/a" \
+      security.readonly.rootfs="true" \
+      security.no.new.privileges="true" \
+      security.healthcheck="enabled" \
+      security.logging="centralized" \
+      security.audit="enabled"
 
 STOPSIGNAL SIGTERM
 USER ${HARDN_UID}:${HARDN_GID}
