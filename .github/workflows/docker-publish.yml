@@ -116,7 +116,6 @@ jobs:
           echo "[info] Image: $IMAGE_CI"
           echo "[info] Default image user (for reference): $(docker image inspect "$IMAGE_CI" --format '{{json .Config.User}}' || true)"
 
-          # Create container AS ROOT and BYPASS ENTRYPOINT
           docker create \
             --name "$NAME" \
             --user 0:0 \
@@ -133,11 +132,9 @@ jobs:
                 openscap-scanner ssg-debian
               rm -rf /var/lib/apt/lists/*
 
-              # Optional: best-effort hardening/smoke
               [[ -x /usr/local/bin/deb.hardn.sh ]] && /usr/local/bin/deb.hardn.sh || true
               [[ -x /usr/local/bin/smoke_test.sh ]] && /usr/local/bin/smoke_test.sh || true
 
-              # Locate latest Debian content and run STIG profile
               CONTENT=$(ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml 2>/dev/null | sort -V | tail -n1 || true)
               if [[ -n "$CONTENT" ]]; then
                 echo "[scan] OpenSCAP content: $CONTENT"
@@ -150,7 +147,6 @@ jobs:
                 RC=$?
                 set -e
                 echo "[scan] oscap exit code: $RC"
-                # Always leave artifacts; let CI decide pass/fail thresholds later
                 if [[ $RC -ne 0 && ! -s /tmp/stig_report.html ]]; then
                   echo "<html><body><h1>STIG Scan Failed</h1></body></html>" > /tmp/stig_report.html
                 fi
@@ -166,15 +162,12 @@ jobs:
               echo "[scan] done"
             '
 
-          # Run and stream logs
           docker start -a "$NAME"
 
-          # Collect artifacts
           mkdir -p artifacts
           docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || echo "[warn] no report"
           docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || echo "[warn] no results"
 
-          # Cleanup
           docker rm -f "$NAME" >/dev/null 2>&1 || true
       # --------------------------------------------------------------------------------------
 
@@ -229,6 +222,7 @@ jobs:
         with:
           name: sbom-spdx
           path: sbom.spdx.json
+          overwrite: true
 
       - name: Create git tag
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
