@@ -247,4 +247,4 @@ jobs:
             artifacts/stig_report.html
             artifacts/stig_results.xml
             sbom.spdx.json
-        continue-on-error: true
+        continue-on-error: false
