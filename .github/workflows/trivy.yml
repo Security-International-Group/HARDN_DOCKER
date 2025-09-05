@@ -110,7 +110,7 @@ jobs:
 
       - name: Trivy (JSON) - full findings
         id: trivy_json
-        uses: aquasecurity/trivy-action@0.33.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: "image"
           image-ref: "${{ env.BUILT_IMAGE_TAG }}"
