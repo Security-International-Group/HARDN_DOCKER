@@ -108,6 +108,9 @@ RUN mkdir -p /etc/ssl/private \
  && chown -R root:root /etc/ssl/private \
  && chmod 0700 /etc/ssl/private \
  && find /etc/ssl/private -type f -exec chmod 0600 {} \; || true
+# Also catch stray keys under /etc/ssl (extra safety)
+RUN find /etc/ssl -type f \( -name '*.key' -o -name '*-key.pem' -o -name '*_key.pem' \) \
+      -exec chown root:root {} \; -exec chmod 0600 {} \; || true
 
 # System-wide TLS policy: OpenSSL ≥ TLS1.2 (seclevel 2) + ensure include, and GnuTLS legacy disable
 RUN mkdir -p /etc/ssl/openssl.cnf.d \
@@ -122,6 +125,9 @@ CipherString = DEFAULT:@SECLEVEL=2
 EOF
 RUN grep -q 'openssl\.cnf\.d' /etc/ssl/openssl.cnf || \
     printf '\n# HARDN policy\n.include /etc/ssl/openssl.cnf.d/10-hardn.cnf\n' >> /etc/ssl/openssl.cnf
+# Ensure OpenSSL reads our policy section
+RUN grep -qE '^\s*openssl_conf\s*=\s*openssl_init' /etc/ssl/openssl.cnf || \
+    sed -i '1i openssl_conf = openssl_init' /etc/ssl/openssl.cnf
 RUN mkdir -p /etc/gnutls \
  && printf '[overrides]\n' > /etc/gnutls/config \
  && printf 'disabled-version = ssl3.0\n'  >> /etc/gnutls/config \
@@ -145,7 +151,7 @@ _real="/usr/bin/tar"
 extract=0; prev=""; archive=""
 for a in "$@"; do
   [[ "$a" == "-x" || "$a" == "--extract" ]] && extract=1
-  if [[ "$prev" == "-f" || "$prev" == "--file" ]]; then archive="$a"; prev=""; continue; fi
+  if [[ "$prev" == "-f" || "$prev" == "--file" ]] ; then archive="$a"; prev=""; continue; fi
   [[ "$a" == "-f" || "$a" == "--file" ]] && prev="$a"
 done
 
