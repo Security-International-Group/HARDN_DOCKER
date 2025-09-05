@@ -34,5 +34,5 @@ hardn-xdr-deb/
 ├─ README.md
 ├─ .github/
 │  └─ workflows/
-│     └─ ci.yml
+│     └─ build-and-publish.yml
 ```
