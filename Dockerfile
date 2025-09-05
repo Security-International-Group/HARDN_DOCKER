@@ -25,12 +25,10 @@ ENV LANG=C.UTF-8 \
 
 ARG HARDN_UID=10001
 ARG HARDN_GID=10001
-# Optional: fast dev builds can skip heavy scans (keep 0 for releases)
-ARG FAST_BUILD=0
-# Bake STIG tooling when requested (OpenSCAP + SSG content)
-ARG WITH_STIG_TOOLS=0
+ARG FAST_BUILD=0               # set to 1 for faster dev builds (skips heavy scans)
+ARG WITH_STIG_TOOLS=0          # set to 1 to add OpenSCAP + SSG content
 
-# Base packages (with BuildKit cache mounts for speed)
+# Base packages (BuildKit cache mounts for speed)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     set -eux; \
@@ -50,7 +48,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     if [ "${WITH_STIG_TOOLS}" = "1" ]; then \
       apt-get install -y --no-install-recommends openscap-scanner ssg-debian; \
     fi; \
-    # ensure Python didn't sneak in
     apt-mark auto 'python3*' >/dev/null 2>&1 || true; \
     apt-get purge -y 'python3*' >/dev/null 2>&1 || true; \
     apt-get autoremove -y --purge; \
@@ -139,8 +136,8 @@ RUN if [ "$FAST_BUILD" != "1" ]; then \
 # Ensure /tmp and /var/tmp are sticky (1777)
 RUN chmod 1777 /tmp /var/tmp || true
 
-# Safe tar wrapper for untrusted archives (mitigates traversal/link tricks)
-RUN bash -lc 'cat > /usr/local/bin/tar << "EOF"
+# Safe tar wrapper (Dockerfile heredoc, avoids parse errors)
+RUN install -m 0755 /dev/stdin /usr/local/bin/tar <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 _real="/usr/bin/tar"
@@ -153,7 +150,7 @@ for a in "$@"; do
 done
 
 if [[ $extract -eq 1 && -n "${archive:-}" ]]; then
-  "$_real" -tf "$archive" | awk '\''/^(\/|.*\/\.\.\/|^\.\.\/)/ {print "E: unsafe path: " $0 > "/dev/stderr"; bad=1} END {exit bad}'\''
+  "$_real" -tf "$archive" | awk '/^(\/|.*\/\.\.\/|^\.\.\/)/ {print "E: unsafe path: " $0 > "/dev/stderr"; bad=1} END {exit bad}'
   if "$_real" -tvf "$archive" | grep -Eq "^[lh]"; then
     echo "E: archive contains link entries; refusing extraction" >&2; exit 1
   fi
@@ -161,8 +158,7 @@ if [[ $extract -eq 1 && -n "${archive:-}" ]]; then
 else
   exec "$_real" "$@"
 fi
-EOF
-chmod 0755 /usr/local/bin/tar'
+SH
 
 # -----------------------------------------------------------------------
 
