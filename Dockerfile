@@ -163,6 +163,14 @@ RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && find /var/log -type f -exec truncate -s 0 {} \; || true
 
 
+LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
+      org.opencontainers.image.description="Multi-arch (amd64/arm64) hardened Debian 13 (Trixie) base with CIS-aligned defaults, non-root user, umask 027, baseline sysctl, auditd & AIDE, healthcheck, and read-only-rootfs friendly. Optional STIG tools (OpenSCAP+SSG) via WITH_STIG_TOOLS=1." \
+      org.opencontainers.image.vendor="HARDN-XDR Project" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.url="${REPO_URL}" \
+      org.opencontainers.image.source="${REPO_URL}"
+
 STOPSIGNAL SIGTERM
 USER ${HARDN_UID}:${HARDN_GID}
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
