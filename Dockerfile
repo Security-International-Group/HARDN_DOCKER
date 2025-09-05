@@ -25,12 +25,15 @@ ENV LANG=C.UTF-8 \
 
 ARG HARDN_UID=10001
 ARG HARDN_GID=10001
-
-# bake STIG tooling when requested
-# Set WITH_STIG_TOOLS=1 at build time to install openscap-scanner + content
+# Optional: fast dev builds can skip heavy scans (keep 0 for releases)
+ARG FAST_BUILD=0
+# Bake STIG tooling when requested (OpenSCAP + SSG content)
 ARG WITH_STIG_TOOLS=0
 
-RUN set -eux; \
+# Base packages (with BuildKit cache mounts for speed)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    set -eux; \
     rm -f /etc/apt/sources.list.d/debian.sources; \
     printf '%s\n' \
       "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" \
@@ -39,20 +42,15 @@ RUN set -eux; \
       "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" \
       > /etc/apt/sources.list; \
     apt-get update --error-on=any; \
-    # keep base patched; reproducibility handled via rebuild cadence
     apt-get -y upgrade; \
-    \
     apt-get install -y --no-install-recommends \
         bash coreutils findutils grep sed gawk tar xz-utils which \
-        ca-certificates curl openssl \
-        debsums wget iptables auditd aide aide-common \
-        libarchive-tools; \
-    \
+        ca-certificates curl openssl debsums wget iptables \
+        auditd aide aide-common libarchive-tools; \
     if [ "${WITH_STIG_TOOLS}" = "1" ]; then \
       apt-get install -y --no-install-recommends openscap-scanner ssg-debian; \
     fi; \
-    \
-    # Ensure Python didn’t sneak in...
+    # ensure Python didn't sneak in
     apt-mark auto 'python3*' >/dev/null 2>&1 || true; \
     apt-get purge -y 'python3*' >/dev/null 2>&1 || true; \
     apt-get autoremove -y --purge; \
@@ -61,7 +59,7 @@ RUN set -eux; \
 
 RUN mkdir -p /etc/sysctl.d /etc/iptables ${HARDN_XDR_HOME} /opt/hardn-xdr/docs /var/log/security
 
-# Non-root user (CIS 5.4) ----
+# Non-root user (CIS 5.4)
 RUN groupadd -g "${HARDN_GID}" -r hardn \
  && useradd  -u "${HARDN_UID}" -g "${HARDN_GID}" -r -s /usr/sbin/nologin -d /home/hardn -c "HARDN-XDR User" hardn \
  && mkdir -p /home/hardn /var/lib/hardn /opt/hardn-xdr/state \
@@ -71,14 +69,14 @@ RUN groupadd -g "${HARDN_GID}" -r hardn \
 
 WORKDIR /opt/hardn-xdr
 
-# **Security**: root owns /usr/local/bin to prevent in-container tampering
-COPY --chown=root:root --chmod=0755 deb.hardn.sh /usr/local/bin/
-COPY --chown=root:root --chmod=0755 entrypoint.sh /usr/local/bin/
-COPY --chown=root:root --chmod=0755 smoke_test.sh /usr/local/bin/
-COPY --chown=root:root --chmod=0755 health_check.sh /usr/local/bin/
-COPY --chown=root:root src/sources/ /sources/
+# Root owns tool dir to prevent tampering
+COPY --chown=root:root --chmod=0755 deb.hardn.sh      /usr/local/bin/
+COPY --chown=root:root --chmod=0755 entrypoint.sh     /usr/local/bin/
+COPY --chown=root:root --chmod=0755 smoke_test.sh     /usr/local/bin/
+COPY --chown=root:root --chmod=0755 health_check.sh   /usr/local/bin/
+COPY --chown=root:root --chmod=0755 src/sources/      /sources/
 
-# Baseline kernel tunables (applied at runtime if permitted) ----
+# Baseline kernel tunables (runtime-applied if permitted)
 RUN set -eux; \
     echo "* soft core 0" >> /etc/security/limits.conf; \
     echo "* hard core 0" >> /etc/security/limits.conf; \
@@ -104,49 +102,49 @@ net.ipv6.conf.default.accept_redirects=0
 fs.protected_fifos=2
 fs.protected_regular=2
 SYSCTL
-# sysctl -p has no effect at build time; keep for layer validation
 RUN sysctl -p /etc/sysctl.d/99-hardening.conf || true
 
-# --------- Hardening additions to satisfy scan recommendations ---------
+# ---------- Hardening additions to satisfy scan recommendations ----------
 
-# 1) TLS private-key ownership/permissions
+# TLS private-key ownership/permissions
 RUN mkdir -p /etc/ssl/private \
  && chown -R root:root /etc/ssl/private \
  && chmod 0700 /etc/ssl/private \
  && find /etc/ssl/private -type f -exec chmod 0600 {} \; || true
 
-# 2) System-wide TLS policy (OpenSSL ≥ TLS1.2, SecLevel=2) + GnuTLS legacy disable
+# System-wide TLS policy: OpenSSL ≥ TLS1.2 (seclevel 2) + ensure include, and GnuTLS legacy disable
 RUN mkdir -p /etc/ssl/openssl.cnf.d \
  && cat > /etc/ssl/openssl.cnf.d/10-hardn.cnf <<'EOF'
 [openssl_init]
 ssl_conf = ssl_sect
-
 [ssl_sect]
 system_default = system_default_sect
-
 [system_default_sect]
 MinProtocol = TLSv1.2
 CipherString = DEFAULT:@SECLEVEL=2
 EOF
+RUN grep -q 'openssl\.cnf\.d' /etc/ssl/openssl.cnf || \
+    printf '\n# HARDN policy\n.include /etc/ssl/openssl.cnf.d/10-hardn.cnf\n' >> /etc/ssl/openssl.cnf
 RUN mkdir -p /etc/gnutls \
  && printf '[overrides]\n' > /etc/gnutls/config \
- && printf 'disabled-version = ssl3.0\n' >> /etc/gnutls/config \
+ && printf 'disabled-version = ssl3.0\n'  >> /etc/gnutls/config \
  && printf 'disabled-version = tls1.0\n' >> /etc/gnutls/config \
  && printf 'disabled-version = tls1.1\n' >> /etc/gnutls/config
 
-# 3) Drop common setuid/setgid bits (except sudo)
-RUN find /usr -xdev -perm /6000 -type f ! -path '/usr/bin/sudo' -exec chmod ug-s {} + 2>/dev/null || true
+# Drop common setuid/setgid bits (except sudo)
+RUN if [ "$FAST_BUILD" != "1" ]; then \
+      find /usr -xdev -perm /6000 -type f ! -path '/usr/bin/sudo' -exec chmod ug-s {} + 2>/dev/null || true; \
+    fi
 
-# 4) Ensure /tmp and /var/tmp are sticky and world-writable as expected (1777)
+# Ensure /tmp and /var/tmp are sticky (1777)
 RUN chmod 1777 /tmp /var/tmp || true
 
-# 5) Safe tar wrapper for untrusted archives (mitigate traversal/link tricks)
+# Safe tar wrapper for untrusted archives (mitigates traversal/link tricks)
 RUN bash -lc 'cat > /usr/local/bin/tar << "EOF"
 #!/usr/bin/env bash
 set -euo pipefail
 _real="/usr/bin/tar"
 
-# detect extract mode and target archive
 extract=0; prev=""; archive=""
 for a in "$@"; do
   [[ "$a" == "-x" || "$a" == "--extract" ]] && extract=1
@@ -155,9 +153,7 @@ for a in "$@"; do
 done
 
 if [[ $extract -eq 1 && -n "${archive:-}" ]]; then
-  # Reject absolute paths and parent traversals
   "$_real" -tf "$archive" | awk '\''/^(\/|.*\/\.\.\/|^\.\.\/)/ {print "E: unsafe path: " $0 > "/dev/stderr"; bad=1} END {exit bad}'\''
-  # Reject symlink/hardlink entries
   if "$_real" -tvf "$archive" | grep -Eq "^[lh]"; then
     echo "E: archive contains link entries; refusing extraction" >&2; exit 1
   fi
@@ -168,7 +164,7 @@ fi
 EOF
 chmod 0755 /usr/local/bin/tar'
 
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------------
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD bash -lc '\
@@ -178,7 +174,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 RUN /usr/local/bin/deb.hardn.sh || echo "HARDN setup complete"
 
-# Auth & umask defaults ----
+# Auth & umask defaults
 RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.defs && \
     sed -ri 's/^#?SHA_CRYPT_MAX_ROUNDS.*/SHA_CRYPT_MAX_ROUNDS 50000/' /etc/login.defs && \
     sed -ri 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs && \
@@ -189,6 +185,7 @@ RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.
 # Hide compilers if present (usually not on slim)
 RUN chmod 700 /usr/bin/gcc* /usr/bin/g++* /usr/bin/cc* 2>/dev/null || true
 
+# Shrink image
 RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && find /usr/share -type f \( -name "*.gz" -o -name "*.bz2" -o -name "*.xz" \) -delete 2>/dev/null || true \
  && rm -rf /usr/share/locale/* /usr/share/i18n/* /usr/share/doc/* /usr/share/man/* 2>/dev/null || true \
