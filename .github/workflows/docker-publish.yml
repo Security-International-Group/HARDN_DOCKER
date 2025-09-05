@@ -219,7 +219,7 @@ jobs:
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-spdx
+          name: sbom-spdx-1
           path: sbom.spdx.json
 
       - name: Create git tag
