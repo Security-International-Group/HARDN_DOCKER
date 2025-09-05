@@ -1,170 +1,43 @@
-name: Trivy 
+name: trivy
 
 on:
   push:
-    branches: ["*"]
+    branches: [ "main" ]
   pull_request:
-  workflow_dispatch:
-    inputs:
-      dockerfile:
-        description: "Path to Dockerfile (default: ./Dockerfile)"
-        required: false
-        default: "./Dockerfile"
-      context:
-        description: "Build context (default: .)"
-        required: false
-        default: "."
+    # The branches below must be a subset of the branches above
+    branches: [ "*" ]
   schedule:
-    - cron: "23 5 * * 1" # Mondays 05:23 UTC
+    - cron: '26 1 * * 5'
 
 permissions:
   contents: read
-  security-events: write   # required to upload SARIF
-  actions: read
-  packages: read
-
-concurrency:
-  group: trivy-build-scan-${{ github.ref }}
-  cancel-in-progress: false
-
-env:
-  TRIVY_SEVERITY: "CRITICAL,HIGH"
-  TRIVY_TIMEOUT: "10m"
-  TRIVY_CACHE_DIR: "~/.cache/trivy"
-  BUILT_IMAGE_TAG: "local-trixie:${{ github.sha }}"
 
 jobs:
-  build-and-scan:
-    name: Build and scan
+  build:
+    permissions:
+      contents: read # for actions/checkout to fetch code
+      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
+      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+    name: Build
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout (full, for reproducible builds)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-      - name: Verify Dockerfile uses Debian 13 (trixie) base
-        id: verify
+      - name: Build an image from Dockerfile
         run: |
-          DOCKERFILE="${{ github.event.inputs.dockerfile || './Dockerfile' }}"
+          docker build -t docker.io/my-organization/my-app:${{ github.sha }} .
 
-          if [[ ! -f "$DOCKERFILE" ]]; then
-            echo "::warning title=Dockerfile not found::$DOCKERFILE not found. Creating minimal one."
-            cat > "$DOCKERFILE" <<EOF
-          FROM debian:trixie
-          SHELL ["/bin/bash","-o","pipefail","-c"]
-          ENV DEBIAN_FRONTEND=noninteractive
-          RUN apt-get update \
-           && apt-get install -y --no-install-recommends ca-certificates curl \
-           && rm -rf /var/lib/apt/lists/*
-          CMD ["bash","-lc","cat /etc/os-release && sleep infinity"]
-          EOF
-          fi
-
-          if grep -Eiq '^[[:space:]]*FROM[[:space:]]+.*trixie' "$DOCKERFILE"; then
-            echo "base=trixie" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning title=Base image check::$DOCKERFILE does not use trixie"
-            echo "base=unknown" >> "$GITHUB_OUTPUT"
-          fi
-        shell: bash
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image (local only)
-        uses: docker/build-push-action@v6
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
         with:
-          context: ${{ github.event.inputs.context || '.' }}
-          file: ${{ github.event.inputs.dockerfile || './Dockerfile' }}
-          push: false
-          load: true
-          tags: ${{ env.BUILT_IMAGE_TAG }}
-          provenance: false
-          sbom: false
-          build-args: |
-            GITHUB_REPOSITORY=${{ github.repository }}
-            GITHUB_SHA=${{ github.sha }}
-            GITHUB_REF_NAME=${{ github.ref_name }}
-            GITHUB_RUN_NUMBER=${{ github.run_number }}
+          image-ref: 'docker.io/my-organization/my-app:${{ github.sha }}'
+          format: 'template'
+          template: '@/contrib/sarif.tpl'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
 
-      - name: Ensure Trivy cache dir
-        run: mkdir -p ${{ env.TRIVY_CACHE_DIR }}
-
-      - name: Trivy (SARIF) - vulnerabilities/misconfig/secrets
-        id: trivy_sarif
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: "image"
-          image-ref: "${{ env.BUILT_IMAGE_TAG }}"
-          format: "sarif"
-          output: "trivy-image.sarif"
-          severity: "${{ env.TRIVY_SEVERITY }}"
-          ignore-unfixed: false
-          scanners: "vuln,misconfig,secret"
-          vuln-type: "os,library"
-          timeout: "${{ env.TRIVY_TIMEOUT }}"
-          cache-dir: "${{ env.TRIVY_CACHE_DIR }}"
-        continue-on-error: true
-
-      - name: Trivy (JSON) - full findings
-        id: trivy_json
-        uses: aquasecurity/trivy-action@0.33.0
-        with:
-          scan-type: "image"
-          image-ref: "${{ env.BUILT_IMAGE_TAG }}"
-          format: "json"
-          output: "trivy-image.json"
-          severity: "${{ env.TRIVY_SEVERITY }}"
-          ignore-unfixed: false
-          scanners: "vuln,misconfig,secret"
-          vuln-type: "os,library"
-          timeout: "${{ env.TRIVY_TIMEOUT }}"
-          cache-dir: "${{ env.TRIVY_CACHE_DIR }}"
-        continue-on-error: true
-
-      - name: Trivy SBOM (CycloneDX)
-        shell: bash
-        run: |
-          trivy sbom --timeout "${TRIVY_TIMEOUT}" --cache-dir "${TRIVY_CACHE_DIR}" \
-            --format cyclonedx --output sbom-image.cdx.json \
-            "${{ env.BUILT_IMAGE_TAG }}" || true
-
-      - name: Upload SARIF to Code Scanning
-        if: always()
+      - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: trivy-image.sarif
-          category: trivy-image
-
-      - name: Upload artifacts (JSON, SBOM)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-built-trixie-reports
-          path: |
-            trivy-image.sarif
-            trivy-image.json
-            sbom-image.cdx.json
-          retention-days: 14
-          if-no-files-found: warn
-
-      - name: Gate on HIGH/CRITICAL findings
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! -f trivy-image.json ]]; then
-            echo "No JSON produced; failing for safety."
-            exit 1
-          fi
-
-          COUNT=$(jq '[..|objects|select(has("Severity"))|select(.Severity=="HIGH" or .Severity=="CRITICAL")] | length' trivy-image.json)
-          echo "HIGH/CRITICAL count: $COUNT"
-
-          if [[ "${COUNT}" -gt 0 ]]; then
-            echo "::error title=Trivy Gate::Found ${COUNT} HIGH/CRITICAL issues in ${{ env.BUILT_IMAGE_TAG }}"
-            exit 1
-          fi
-
-          echo "No HIGH/CRITICAL issues found in ${{ env.BUILT_IMAGE_TAG }}"
+          sarif_file: 'trivy-results.sarif'

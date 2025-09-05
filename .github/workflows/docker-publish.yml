@@ -104,7 +104,6 @@ jobs:
         run: |
           docker push $REGISTRY/${{ steps.repo.outputs.name }}:ci-test
 
-      # -------- EntryPoint-bypass STIG scan --------
       - name: Run hardening + smoke + STIG scan (root, entrypoint bypass)
         shell: bash
         env:
@@ -141,7 +140,7 @@ jobs:
           mkdir -p artifacts
           docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || true
           docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || true
-          docker rm -f "$NAME" >/dev/null 2>&1 || true
+          docker rm -f "$NAME" >/dev/null 2>&1 || true      # -------------------------------------------------------------------------
 
       - name: Upload STIG artifacts
         uses: actions/upload-artifact@v4
@@ -161,7 +160,7 @@ jobs:
 
       - name: Build and push Docker image
         id: build-and-push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
@@ -192,6 +191,7 @@ jobs:
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
+
           name: sbom-spdx-${{ steps.version.outputs.next }}
           path: sbom.spdx.json
 
@@ -203,7 +203,8 @@ jobs:
           if git tag -l | grep -q "^${TAG_NAME}$"; then
             echo "::warning ::Tag ${TAG_NAME} already exists, skipping tag creation"
             exit 0
-          fi
+          fip
+
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git tag "${TAG_NAME}"
@@ -219,4 +220,4 @@ jobs:
             artifacts/stig_report.html
             artifacts/stig_results.xml
             sbom.spdx.json
-        continue-on-error: true
+        continue-on-error: false
