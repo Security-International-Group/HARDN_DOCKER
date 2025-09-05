@@ -104,7 +104,6 @@ jobs:
         run: |
           docker push $REGISTRY/${{ steps.repo.outputs.name }}:ci-test
 
-      # -------------------- OPTION 1: ENTRYPOINT BYPASS SCAN --------------------
       - name: Run hardening + smoke + STIG scan (root, entrypoint bypass)
         shell: bash
         env:
@@ -112,11 +111,6 @@ jobs:
           NAME: hardn-test-${{ github.run_id }}
         run: |
           set -euo pipefail
-
-          echo "[info] Image: $IMAGE_CI"
-          echo "[info] Default image user (for reference): $(docker image inspect "$IMAGE_CI" --format '{{json .Config.User}}' || true)"
-
-          # Create container as root and BYPASS ENTRYPOINT
           docker create \
             --name "$NAME" \
             --user 0:0 \
@@ -124,56 +118,34 @@ jobs:
             "$IMAGE_CI" \
             /bin/bash -lc '
               set -euo pipefail
-              echo "[scan] whoami: $(whoami)  id: $(id)"
-              echo "[scan] PWD: $(pwd)"
-
-              # Optional best-effort hardening/smoke
-              if [[ -x /usr/local/bin/deb.hardn.sh ]]; then
-                echo "[scan] running deb.hardn.sh"
-                /usr/local/bin/deb.hardn.sh || echo "[scan] deb.hardn.sh returned non-zero"
-              fi
-              if [[ -x /usr/local/bin/smoke_test.sh ]]; then
-                echo "[scan] running smoke_test.sh"
-                /usr/local/bin/smoke_test.sh || echo "[scan] smoke_test.sh returned non-zero"
-              fi
-
-              # STIG scan if tooling/content exist; otherwise create stub artifacts
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                openscap-scanner ssg-debian
+              rm -rf /var/lib/apt/lists/*
+              [[ -x /usr/local/bin/deb.hardn.sh ]] && /usr/local/bin/deb.hardn.sh || true
+              [[ -x /usr/local/bin/smoke_test.sh ]] && /usr/local/bin/smoke_test.sh || true
               CONTENT=$(ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml 2>/dev/null | sort -V | tail -n1 || true)
-              if command -v oscap >/dev/null 2>&1 && [[ -n "${CONTENT}" ]]; then
-                echo "[scan] OpenSCAP content: ${CONTENT}"
-                if oscap xccdf eval \
-                      --profile xccdf_org.ssgproject.content_profile_stig \
-                      --report /tmp/stig_report.html \
-                      --results /tmp/stig_results.xml \
-                      "${CONTENT}" 2>&1; then
-                  echo "[scan] STIG scan completed successfully"
-                else
-                  echo "[scan] STIG scan failed; writing stub artifacts"
-                  echo "<html><body><h1>STIG Scan Failed</h1></body></html>" > /tmp/stig_report.html
-                  echo "<?xml version=\"1.0\"?><results><error>STIG scan failed</error></results>" > /tmp/stig_results.xml
-                fi
+              if [[ -n "$CONTENT" ]]; then
+                oscap xccdf eval \
+                  --profile xccdf_org.ssgproject.content_profile_stig \
+                  --report /tmp/stig_report.html \
+                  --results /tmp/stig_results.xml \
+                  "$CONTENT" || true
               else
-                echo "[scan] STIG deps/content missing; writing stub artifacts"
                 echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html
                 echo "<?xml version=\"1.0\"?><results><message>Not available</message></results>" > /tmp/stig_results.xml
               fi
-
-              echo "[scan] done"
             '
-
           docker start -a "$NAME"
-
           mkdir -p artifacts
-          docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || echo "[warn] no report"
-          docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || echo "[warn] no results"
-
-          docker rm -f "$NAME" >/dev/null 2>&1 || true
-      # -------------------------------------------------------------------------
+          docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || true
+          docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || true
+          docker rm -f "$NAME" >/dev/null 2>&1 || true      # -------------------------------------------------------------------------
 
       - name: Upload STIG artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stig-scan
+          name: stig-scan-${{ steps.version.outputs.next }}
           path: artifacts/*
 
       - name: Extract Docker metadata (tags/labels)
@@ -219,7 +191,8 @@ jobs:
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-spdx-1
+
+          name: sbom-spdx-${{ steps.version.outputs.next }}
           path: sbom.spdx.json
 
       - name: Create git tag
@@ -230,8 +203,8 @@ jobs:
           if git tag -l | grep -q "^${TAG_NAME}$"; then
             echo "::warning ::Tag ${TAG_NAME} already exists, skipping tag creation"
             exit 0
-          fi
-          echo "Creating and pushing tag: ${TAG_NAME}"
+          fip
+
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git tag "${TAG_NAME}"
