@@ -30,6 +30,13 @@ docker pull ghcr.io/<openSource-for-freedom/hardn_debian_docker_image>:deb13
 docker run --name hardn-xdr -d ghcr.io/<openSource-for-freedom/hardn_debian_docker_image>:deb13
 
 ```
+
+## Testing 
+![docker](src/sources/docker.png)
+- Currently "0" CVE builds - OS and Container.
+- deb.hardn.sh deploys a slim security slice into the Container which fully removes all local Debian 13, and Docker Image CVE's during build and run. 
+- CVE-2025-45582 — Medium Severity (CVSS 3.1: 4.1) does not pertain to this package. Tar is not a utilized dependacy but does exist in Debian 13 in its initial state. 
+
 ---
 ## Architecture 
 
