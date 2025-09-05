@@ -148,30 +148,44 @@ jobs:
           name: stig-scan-${{ steps.version.outputs.next }}
           path: artifacts/*
 
-      - name: Extract Docker metadata (tags/labels)
+      - name: Docker metadata (tags/labels + annotations)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}
-          annotations: |
-            org.opencontainers.image.description=Multi-arch (amd64/arm64) hardened Debian 13 (Trixie) base with CIS-aligned defaults, non-root user, umask 027, baseline sysctl, auditd & AIDE, healthcheck, and read-only-rootfs friendly. Optional STIG tools (OpenSCAP+SSG) via WITH_STIG_TOOLS=1.
           tags: |
             type=raw,value=deb13
             type=raw,value=${{ steps.version.outputs.next }}
             type=sha
+          labels: |
+            org.opencontainers.image.title=HARDN-XDR (Debian, STIG/CISA)
+            org.opencontainers.image.description=Multi-arch (amd64/arm64) hardened Debian 13 (Trixie) base with CIS-aligned defaults, non-root user, umask 027, baseline sysctl, auditd & AIDE, healthcheck, and read-only-rootfs friendly. Optional STIG tools (OpenSCAP+SSG) via WITH_STIG_TOOLS=1.
+            org.opencontainers.image.vendor=HARDN-XDR Project
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.url=https://github.com/opensource-for-freedom/hardn_debian_docker_image
+            org.opencontainers.image.source=https://github.com/opensource-for-freedom/hardn_debian_docker_image
+          annotations: |
+            org.opencontainers.image.description=Multi-arch (amd64/arm64) hardened Debian 13 (Trixie) base with CIS-aligned defaults, non-root user, umask 027, baseline sysctl, auditd & AIDE, healthcheck, and read-only-rootfs friendly. Optional STIG tools (OpenSCAP+SSG) via WITH_STIG_TOOLS=1.
 
-      - name: Build and push Docker image
+      - name: Build and push Docker image (multi-arch)
         id: build-and-push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: true
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: false
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify manifest
+        if: github.event_name != 'pull_request'
+        run: |
+          docker buildx imagetools inspect $REGISTRY/${{ steps.repo.outputs.name }}:${{ steps.version.outputs.next }}
 
       - name: Sign the published Docker image (cosign keyless)
         if: ${{ github.event_name != 'pull_request' }}
@@ -201,27 +215,15 @@ jobs:
         run: |
           set -euo pipefail
           TAG_NAME="${{ steps.version.outputs.next }}"
-
           if git tag -l | grep -q "^${TAG_NAME}$"; then
             echo "::warning ::Tag ${TAG_NAME} already exists, skipping tag creation"
             exit 0
           fi
-
           echo "Creating and pushing tag: ${TAG_NAME}"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          if ! git tag "${TAG_NAME}"; then
-            echo "::error ::Failed to create git tag ${TAG_NAME}"
-            exit 1
-          fi
-
-          if ! git push origin "${TAG_NAME}"; then
-            echo "::error ::Failed to push git tag ${TAG_NAME}"
-            exit 1
-          fi
-
-          echo "Successfully created and pushed tag: ${TAG_NAME}"
+          git tag "${TAG_NAME}"
+          git push origin "${TAG_NAME}"
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
@@ -233,4 +235,4 @@ jobs:
             artifacts/stig_report.html
             artifacts/stig_results.xml
             sbom.spdx.json
-        continue-on-error: true
+        continue-on-error: false 
