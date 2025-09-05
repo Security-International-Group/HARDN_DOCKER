@@ -1,3 +1,4 @@
+![hardn-docker](src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png)
 # HARDN_Debian_Docker_image
 - A Deployable Debian 13: trixie , HARDN/STIG/CIS compliant Dockerfile image
 ---
