@@ -104,7 +104,7 @@ jobs:
         run: |
           docker push $REGISTRY/${{ steps.repo.outputs.name }}:ci-test
 
-      # -------- Option 1: bypass entrypoint; install OpenSCAP in ephemeral container --------
+      # -------- EntryPoint-bypass STIG scan --------
       - name: Run hardening + smoke + STIG scan (root, entrypoint bypass)
         shell: bash
         env:
@@ -112,10 +112,6 @@ jobs:
           NAME: hardn-test-${{ github.run_id }}
         run: |
           set -euo pipefail
-
-          echo "[info] Image: $IMAGE_CI"
-          echo "[info] Default image user (for reference): $(docker image inspect "$IMAGE_CI" --format '{{json .Config.User}}' || true)"
-
           docker create \
             --name "$NAME" \
             --user 0:0 \
@@ -123,58 +119,34 @@ jobs:
             "$IMAGE_CI" \
             /bin/bash -lc '
               set -euo pipefail
-              echo "[scan] whoami: $(whoami)  id: $(id)"
-              echo "[scan] PWD: $(pwd)"
-
-              # Install OpenSCAP + content ONLY for this scan (keeps published image lean)
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
                 openscap-scanner ssg-debian
               rm -rf /var/lib/apt/lists/*
-
               [[ -x /usr/local/bin/deb.hardn.sh ]] && /usr/local/bin/deb.hardn.sh || true
               [[ -x /usr/local/bin/smoke_test.sh ]] && /usr/local/bin/smoke_test.sh || true
-
               CONTENT=$(ls /usr/share/xml/scap/ssg/content/ssg-debian*-ds.xml 2>/dev/null | sort -V | tail -n1 || true)
               if [[ -n "$CONTENT" ]]; then
-                echo "[scan] OpenSCAP content: $CONTENT"
-                set +e
                 oscap xccdf eval \
                   --profile xccdf_org.ssgproject.content_profile_stig \
                   --report /tmp/stig_report.html \
                   --results /tmp/stig_results.xml \
-                  "$CONTENT"
-                RC=$?
-                set -e
-                echo "[scan] oscap exit code: $RC"
-                if [[ $RC -ne 0 && ! -s /tmp/stig_report.html ]]; then
-                  echo "<html><body><h1>STIG Scan Failed</h1></body></html>" > /tmp/stig_report.html
-                fi
-                if [[ $RC -ne 0 && ! -s /tmp/stig_results.xml ]]; then
-                  echo "<?xml version=\"1.0\"?><results><error>STIG scan failed</error></results>" > /tmp/stig_results.xml
-                fi
+                  "$CONTENT" || true
               else
-                echo "[scan] STIG content not found; writing stub artifacts"
                 echo "<html><body><h1>STIG Scan Not Available</h1></body></html>" > /tmp/stig_report.html
                 echo "<?xml version=\"1.0\"?><results><message>Not available</message></results>" > /tmp/stig_results.xml
               fi
-
-              echo "[scan] done"
             '
-
           docker start -a "$NAME"
-
           mkdir -p artifacts
-          docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || echo "[warn] no report"
-          docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || echo "[warn] no results"
-
+          docker cp "$NAME":/tmp/stig_report.html artifacts/stig_report.html || true
+          docker cp "$NAME":/tmp/stig_results.xml artifacts/stig_results.xml || true
           docker rm -f "$NAME" >/dev/null 2>&1 || true
-      # --------------------------------------------------------------------------------------
 
       - name: Upload STIG artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stig-scan
+          name: stig-scan-${{ steps.version.outputs.next }}
           path: artifacts/*
 
       - name: Extract Docker metadata (tags/labels)
@@ -220,9 +192,8 @@ jobs:
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-spdx
+          name: sbom-spdx-${{ steps.version.outputs.next }}
           path: sbom.spdx.json
-          overwrite: true
 
       - name: Create git tag
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -233,7 +204,6 @@ jobs:
             echo "::warning ::Tag ${TAG_NAME} already exists, skipping tag creation"
             exit 0
           fi
-          echo "Creating and pushing tag: ${TAG_NAME}"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git tag "${TAG_NAME}"
