@@ -1,9 +1,4 @@
 #!/bin/bash
-# HARDN-XDR Health Check (fast + safe)
-# Behavior toggles:
-#   HARDN_HEALTH_STRICT=1   -> fail on any warning
-#   HARDN_HEALTH_TIMEOUT=2  -> per-command timeout (seconds, default 2)
-
 set -Eeuo pipefail
 
 
