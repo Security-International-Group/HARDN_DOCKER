@@ -225,12 +225,32 @@ jobs:
           git tag "${TAG_NAME}"
           git push origin "${TAG_NAME}"
 
+
+      - name: Compose release notes (with header image)
+        id: rel
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release_body.md <<EOF
+           ![HARDN-Docker](https://raw.githubusercontent.com/${{ github.repository }}/${{ steps.version.outputs.next }}/src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png)
+
+           **HARDN-Docker ${{ steps.version.outputs.next }}** — Multi-arch (amd64/arm64) hardened Debian 13 (Trixie) base with CIS/STIG tooling.
+
+           **Pull**
+           \`\`\`bash
+           docker pull ghcr.io/${{ steps.repo.outputs.name }}:${{ steps.version.outputs.next }}
+           \`\`\`
+
+           Full notes and docs in repo.
+          EOF
+
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.next }}
-          generate_release_notes: true
+          body_path: release_body.md         # <— use the file we just wrote
+          generate_release_notes: false
           files: |
             artifacts/stig_report.html
             artifacts/stig_results.xml
