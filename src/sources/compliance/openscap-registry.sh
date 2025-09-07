@@ -1,122 +1,123 @@
-#!/bin/bash
-# HARDN-XDR OpenSCAP Registry - Security Content Automation Protocol
-# Mirrors OpenSCAP functionality using native Linux tools
+#!/usr/bin/env bash
+# HARDN-XDR OpenSCAP Registry - Security Content Automation Protocol (wrapper)
 
-# OpenSCAP XCCDF profiles equivalent
+set -euo pipefail
+
 OPENVSCAP_PROFILES="
 cis: CIS Docker Benchmark
 stig: DISA STIG for Linux
 usgcb: US Government Configuration Baseline
 "
 
-# CIS Docker Benchmark checks (implemented natively)
+ok(){ echo "PASS: $*"; }
+fail(){ echo "FAIL: $*"; }
+warn(){ echo "WARN: $*"; }
+
+is_apparmor_active() {
+  # kernel support?
+  if [[ -f /sys/module/apparmor/parameters/enabled ]] && grep -q '[Yy]' /sys/module/apparmor/parameters/enabled 2>/dev/null; then
+    # profile for this process
+    local cur="unconfined"
+    cur=$(cat /proc/self/attr/current 2>/dev/null || echo "unconfined")
+    [[ "$cur" != "unconfined" && -n "$cur" ]]
+  else
+    return 1
+  fi
+}
+
+is_nonewprivs_set() {
+  grep -Eq '^NoNewPrivs:\s*1$' /proc/self/status 2>/dev/null
+}
+
+trusted_base_image() {
+  # prefer /etc/os-release
+  if [[ -r /etc/os-release ]]; then
+    . /etc/os-release
+    case "${ID:-}${ID_LIKE:+ $ID_LIKE}" in
+      *debian*|*ubuntu*|*debian*ubuntu*) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+# --- CIS Docker Benchmark checks ---------------------------------------------
 cis_docker_checks() {
-    echo "Running CIS Docker Benchmark checks (OpenSCAP-style)..."
+  echo "Running CIS Docker Benchmark checks (OpenSCAP-style)..."
+  local passed=0 failed=0
 
-    local passed=0
-    local failed=0
+  # 4.1: dedicated user exists
+  if id hardn >/dev/null 2>&1; then ok "CIS 4.1 - Non-root user exists"; ((passed++))
+  else fail "CIS 4.1 - Non-root user missing"; ((failed++)); fi
 
-    # CIS 4.1: Ensure a user for the container has been created
-    if id hardn >/dev/null 2>&1; then
-        echo "PASS: CIS 4.1 - Non-root user exists"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: CIS 4.1 - Non-root user missing"
-        failed=$((failed + 1))
-    fi
+  # 4.2: trusted base image
+  if trusted_base_image; then ok "CIS 4.2 - Trusted base image"; ((passed++))
+  else fail "CIS 4.2 - Untrusted base image"; ((failed++)); fi
 
-    # CIS 4.2: Ensure that containers use trusted base images
-    if [ -f /etc/os-release ]; then
-        if grep -q "Debian\|Ubuntu" /etc/os-release; then
-            echo "PASS: CIS 4.2 - Trusted base image"
-            passed=$((passed + 1))
-        else
-            echo "FAIL: CIS 4.2 - Untrusted base image"
-            failed=$((failed + 1))
-        fi
-    fi
+  # 5.1: AppArmor
+  if is_apparmor_active; then ok "CIS 5.1 - AppArmor enabled"; ((passed++))
+  else
+    if [[ "${HARDN_ALLOW_UNCONFINED:-0}" == "1" ]]; then warn "CIS 5.1 - AppArmor not active (allowed in CI)"; else fail "CIS 5.1 - AppArmor not active"; ((failed++)); fi
+  fi
 
-    # CIS 5.1: Ensure AppArmor Profile is Enabled
-    if command -v apparmor_status >/dev/null 2>&1; then
-        if apparmor_status 2>/dev/null | grep -q "profiles are loaded"; then
-            echo "PASS: CIS 5.1 - AppArmor enabled"
-            passed=$((passed + 1))
-        else
-            echo "FAIL: CIS 5.1 - AppArmor not active"
-            failed=$((failed + 1))
-        fi
-    fi
+  # 5.4: non-root
+  if [[ "$(id -u)" != "0" ]]; then ok "CIS 5.4 - Non-privileged execution"; ((passed++))
+  else
+    if [[ "${HARDN_ALLOW_ROOT:-0}" == "1" ]]; then warn "CIS 5.4 - Running as root (allowed in CI)"; else fail "CIS 5.4 - Running as root"; ((failed++)); fi
+  fi
 
-    # CIS 5.4: Ensure privileged containers are not used
-    if [ "$(id -u)" != "0" ]; then
-        echo "PASS: CIS 5.4 - Non-privileged execution"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: CIS 5.4 - Running as root"
-        failed=$((failed + 1))
-    fi
+  # 5.25: NoNewPrivs
+  if is_nonewprivs_set; then ok "CIS 5.25 - NoNewPrivs set"; ((passed++))
+  else fail "CIS 5.25 - NoNewPrivs not set"; ((failed++)); fi
 
-    # CIS 5.25: Ensure container is restricted from acquiring additional privileges
-    if grep -q "NoNewPrivs" /proc/$$/status 2>/dev/null; then
-        echo "PASS: CIS 5.25 - NoNewPrivs set"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: CIS 5.25 - NoNewPrivs not set"
-        failed=$((failed + 1))
-    fi
-
-    echo "CIS Docker Benchmark: $passed passed, $failed failed"
-    return $failed
+  echo "CIS Docker Benchmark: $passed passed, $failed failed"
+  # return number of failures (0 == pass)
+  return $failed
 }
 
-# DISA STIG checks (implemented natively)
+
 disa_stig_checks() {
-    echo "Running DISA STIG checks (OpenSCAP-style)..."
+  echo "Running DISA STIG checks (OpenSCAP-style)..."
+  local passed=0 failed=0
 
-    local passed=0
-    local failed=0
+  # system accounts non-login (uid<1000)
+  local non_login_accounts
+  non_login_accounts=$(awk -F: '($1!="root" && $1!="sync" && $1!="shutdown" && $1!="halt" && $3<1000 && $7!="/usr/sbin/nologin" && $7!="/bin/false"){print}' /etc/passwd | wc -l)
+  if [[ "$non_login_accounts" -eq 0 ]]; then ok "STIG - System accounts properly configured"; ((passed++))
+  else fail "STIG - $non_login_accounts system accounts allow login"; ((failed++)); fi
 
-    # STIG RHEL-07-010010: Ensure system accounts are non-login
-    non_login_accounts=$(awk -F: '($1!="root" && $1!="sync" && $1!="shutdown" && $1!="halt" && $3<1000 && $7!="/usr/sbin/nologin" && $7!="/bin/false") {print}' /etc/passwd | wc -l)
-    if [ "$non_login_accounts" -eq 0 ]; then
-        echo "PASS: STIG - System accounts properly configured"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: STIG - $non_login_accounts system accounts allow login"
-        failed=$((failed + 1))
-    fi
+  # no empty password fields
+  local empty_passwords
+  empty_passwords=$(awk -F: '($2 == "" || $2 == "*") {print $1}' /etc/shadow 2>/dev/null | wc -l || echo 0)
+  if [[ "$empty_passwords" -eq 0 ]]; then ok "STIG - No empty password fields"; ((passed++))
+  else fail "STIG - $empty_passwords accounts have empty/locked passwords"; ((failed++)); fi
 
-    # STIG RHEL-07-010020: Ensure password fields are not empty
-    empty_passwords=$(awk -F: '($2 == "") {print $1}' /etc/shadow | wc -l)
-    if [ "$empty_passwords" -eq 0 ]; then
-        echo "PASS: STIG - No empty password fields"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: STIG - $empty_passwords accounts have empty passwords"
-        failed=$((failed + 1))
-    fi
+  # only root has UID 0
+  local uid_zero_accounts
+  uid_zero_accounts=$(awk -F: '($3 == 0) {print $1}' /etc/passwd | wc -l)
+  if [[ "$uid_zero_accounts" -eq 1 ]]; then ok "STIG - Only root has UID 0"; ((passed++))
+  else fail "STIG - $uid_zero_accounts accounts have UID 0"; ((failed++)); fi
 
-    # STIG RHEL-07-010030: Ensure root is the only UID 0 account
-    uid_zero_accounts=$(awk -F: '($3 == 0) {print $1}' /etc/passwd | wc -l)
-    if [ "$uid_zero_accounts" -eq 1 ]; then
-        echo "PASS: STIG - Only root has UID 0"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: STIG - $uid_zero_accounts accounts have UID 0"
-        failed=$((failed + 1))
-    fi
-
-    echo "DISA STIG: $passed passed, $failed failed"
-    return $failed
+  echo "DISA STIG: $passed passed, $failed failed"
+  return $failed
 }
 
-# Generate SCAP-compliant report
+
 generate_scap_report() {
-    echo "Generating SCAP-compliant security report..."
+  echo "Generating SCAP-compliant security report..."
+  local REPORT_FILE="/var/lib/hardn/openscap-report.xml"
+  mkdir -p /var/lib/hardn
 
-    REPORT_FILE="/var/lib/hardn/openscap-report.xml"
 
-    cat > "$REPORT_FILE" << EOF
+  local os_name
+  if command -v lsb_release >/dev/null 2>&1; then
+    os_name="$(lsb_release -d | cut -f2)"
+  elif [[ -r /etc/os-release ]]; then
+    . /etc/os-release; os_name="${PRETTY_NAME:-Linux}"
+  else
+    os_name="Linux"
+  fi
+
+  cat > "$REPORT_FILE" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <arf:asset-report-collection xmlns:arf="http://scap.nist.gov/schema/asset-reporting-format/1.1">
   <arf:assets>
@@ -131,7 +132,7 @@ generate_scap_report() {
         <oval:results xmlns:oval="http://oval.mitre.org/XMLSchema/oval-results-5">
           <oval:system>
             <oval:system-info>
-              <oval:os_name>$(lsb_release -d 2>/dev/null | cut -f2 || echo "Linux")</oval:os_name>
+              <oval:os_name>${os_name}</oval:os_name>
               <oval:os_version>$(uname -r)</oval:os_version>
               <oval:architecture>$(uname -m)</oval:architecture>
             </oval:system-info>
@@ -142,59 +143,40 @@ generate_scap_report() {
   </arf:reports>
 </arf:asset-report-collection>
 EOF
-
-    echo "SCAP report generated: $REPORT_FILE"
+  echo "SCAP report generated: $REPORT_FILE"
 }
 
-# Run comprehensive security assessment
+# --- Orchestration -----------------------------------------------------------
 run_security_assessment() {
-    echo "Running comprehensive security assessment (OpenSCAP-style)..."
+  echo "Running comprehensive security assessment (OpenSCAP-style)..."
 
-    echo "=== CIS Docker Benchmark Assessment ==="
-    cis_docker_checks
-    cis_result=$?
+  echo "=== CIS Docker Benchmark Assessment ==="
+  cis_docker_checks; local cis_result=$?
 
-    echo ""
-    echo "=== DISA STIG Assessment ==="
-    disa_stig_checks
-    stig_result=$?
+  echo
+  echo "=== DISA STIG Assessment ==="
+  disa_stig_checks; local stig_result=$?
 
-    echo ""
-    echo "=== Generating SCAP Report ==="
-    generate_scap_report
+  echo
+  echo "=== Generating SCAP Report ==="
+  generate_scap_report
 
-    # Overall assessment
-    if [ $cis_result -eq 0 ] && [ $stig_result -eq 0 ]; then
-        echo "SECURITY ASSESSMENT: PASSED"
-        return 0
-    else
-        echo "SECURITY ASSESSMENT: FAILED"
-        return 1
-    fi
+  if [[ $cis_result -eq 0 && $stig_result -eq 0 ]]; then
+    echo "SECURITY ASSESSMENT: PASSED"; return 0
+  else
+    echo "SECURITY ASSESSMENT: FAILED"; return 1
+  fi
 }
 
-# Display available security profiles
 echo "Available OpenSCAP profiles:"
-for profile in $OPENVSCAP_PROFILES; do
-    echo "  - $profile"
-done
+printf '  - %s\n' $OPENVSCAP_PROFILES
 
-# Functions are available when sourced
-# export -f cis_docker_checks
-# export -f disa_stig_checks
-# export -f generate_scap_report
-# export -f run_security_assessment
-
-# Main execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    echo "HARDN-XDR OpenSCAP Registry Setup"
-    echo "================================="
-
-    cis_docker_checks
-    disa_stig_checks
-    generate_scap_report
-    run_security_assessment
-
-    echo ""
-    echo "OpenSCAP registry configuration completed."
+  echo "HARDN-XDR OpenSCAP Registry Setup"
+  echo "================================="
+  cis_docker_checks
+  disa_stig_checks
+  generate_scap_report
+  run_security_assessment
+  echo; echo "OpenSCAP registry configuration completed."
 fi
