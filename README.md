@@ -26,8 +26,8 @@ docker run --name hardn-xdr -d \
 
 # Pull and run published image from GHCR
 
-docker pull ghcr.io/<openSource-for-freedom/hardn_debian_docker_image>:deb13
-docker run --name hardn-xdr -d ghcr.io/<openSource-for-freedom/hardn_debian_docker_image>:deb13
+docker pull ghcr.io/openSource-for-freedom/hardn_debian_docker_image:deb13
+docker run --name hardn-xdr -d ghcr.io/openSource-for-freedom/hardn_debian_docker_image:deb13
 
 ```
 
