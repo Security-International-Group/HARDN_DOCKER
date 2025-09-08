@@ -23,14 +23,32 @@
 - **Read-Only & tmpfs Support:** Example run commands demonstrate best practices for least privilege and ephemeral storage.
 - **Automated CI/CD:** Integrated with GitHub Actions for build validation and vulnerability scanning (Trivy).
 
-### Use Cases
+### Deployments
 - Deploy as a secure base image for microservices and critical workloads.
 - Ideal for regulated environments demanding high compliance and security assurance.
 - Continuous integration in DevSecOps pipelines.
 
+## Packages
+- Current GHCR-OCI [Package](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/pkgs/container/hardn_debian_docker_image)
+
+## Architecture 
+
+```bash
+hardn-xdr-deb/
+├─ Dockerfile
+├─ deb.hardn.sh
+├─ entrypoint.sh
+├─ smoke_test.sh
+├─ README.md
+├─ .github/
+│  └─ workflows/
+│     └─ build-and-publish.yml
+```
+
 ### Release
 Here you can find the latest GHCR Release.
 - [Releases](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/releases)
+  
 ## Build
 ```bash
 # Remove any previous container 
@@ -61,19 +79,12 @@ docker run --name hardn-xdr -d ghcr.io/openSource-for-freedom/hardn_debian_docke
 ![docker](src/sources/docker.png)
 - Currently "0" CVE builds - OS and Container.
 - deb.hardn.sh deploys a slim security slice into the Container which fully removes all local Debian 13, and Docker Image CVE's during build and run. 
-- CVE-2025-45582 — Medium Severity (CVSS 3.1: 4.1) does not pertain to this package. Tar is not a utilized dependacy but does exist in Debian 13 in its initial state. 
+- CVE-2025-45582 — Medium Severity (CVSS 3.1: 4.1) does not pertain to this package. Tar is not a utilized dependacy but does exist in Debian 13 base image pre-build.
+- Activily testing increased CIS Compliance as well as docker Bench Testing by [Docker](https://github.com/docker/docker-bench-security)
 
----
-## Architecture 
 
-```bash
-hardn-xdr-deb/
-├─ Dockerfile
-├─ deb.hardn.sh
-├─ entrypoint.sh
-├─ smoke_test.sh
-├─ README.md
-├─ .github/
-│  └─ workflows/
-│     └─ build-and-publish.yml
-```
+## Security
+- Reporting a Vulnerability or compliance > [Security Policy](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/security/policy)
+
+## DevOPs Testing and Workspace
+- Github https://github.com/Security-International-Group
