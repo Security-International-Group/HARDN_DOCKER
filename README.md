@@ -1,10 +1,36 @@
-![hardn-docker](src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png)
-# HARDN_Debian_Docker_image
-- Debian 13: trixie , HARDN/STIG/CIS compliant Dockerfile image
----
-[![Docker](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml)
-[![Trivy](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml/badge.svg)](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml)
+<p align="center">
+  <img src="src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png" alt="hardn-docker" width="690"/>
+  <br>
+  <a href="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml/badge.svg" alt="Docker"/>
+  </a>
+  <a href="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml">
+    <img src="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml/badge.svg" alt="Trivy"/>
+  </a>
+</p>
 
+<div align="center">
+  <h1>HARDN_Debian_Docker_image</h1>
+
+  
+</div>
+
+## Overview
+- **Base OS:** Debian 13 “Trixie,” latest stable release.
+- **Security Hardened:** Automated removal of OS and container CVEs during build and runtime using `deb.hardn.sh`.
+- **Compliance Goals:** Built to exceed industry standards (HARDN, STIG, CIS).
+- **Zero CVE Builds:** Containers are continuously monitored and updated to ensure no known vulnerabilities using `.github/workflows/trixie.yml`.
+- **Read-Only & tmpfs Support:** Example run commands demonstrate best practices for least privilege and ephemeral storage.
+- **Automated CI/CD:** Integrated with GitHub Actions for build validation and vulnerability scanning (Trivy).
+
+### Use Cases
+- Deploy as a secure base image for microservices and critical workloads.
+- Ideal for regulated environments demanding high compliance and security assurance.
+- Continuous integration in DevSecOps pipelines.
+
+### Release
+Here you can find the latest GHCR Release.
+- [Releases](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/releases)
 ## Build
 ```bash
 # Remove any previous container 
