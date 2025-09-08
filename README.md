@@ -81,6 +81,16 @@ docker run --name hardn-xdr -d ghcr.io/openSource-for-freedom/hardn_debian_docke
 - deb.hardn.sh deploys a slim security slice into the Container which fully removes all local Debian 13, and Docker Image CVE's during build and run. 
 - CVE-2025-45582 — Medium Severity (CVSS 3.1: 4.1) does not pertain to this package. Tar is not a utilized dependacy but does exist in Debian 13 base image pre-build.
 - Activily testing increased CIS Compliance as well as docker Bench Testing by [Docker](https://github.com/docker/docker-bench-security)
+- currently there are only minimal CIS 1.13 benchmarks for Debian Trixie.
+- The file `smoke_test.sh` deploys a high level compliance check pre-depolymnet to GHCR/Ci. 
+```
+echo "=========================================="
+echo " HARDN-XDR Container Health Check"
+echo " CIS Docker Benchmark 1.13.0 Compliance"
+echo "=========================================="
+
+# CIS 4.1: Ensure a user for the container has been created...
+```
 
 
 ## Security
