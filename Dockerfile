@@ -25,8 +25,10 @@ ENV LANG=C.UTF-8 \
 
 ARG HARDN_UID=10001
 ARG HARDN_GID=10001
-ARG FAST_BUILD=0               # set to 1 for faster dev builds (skips heavy scans)
-ARG WITH_STIG_TOOLS=0          # set to 1 to add OpenSCAP + SSG content
+# set to 1 for faster dev builds (skips heavy scans)
+ARG FAST_BUILD=0
+# set to 1 to add OpenSCAP + SSG content
+ARG WITH_STIG_TOOLS=0
 
 # Base packages (BuildKit cache mounts for speed)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -79,26 +81,27 @@ RUN set -eux; \
     echo "* hard core 0" >> /etc/security/limits.conf; \
     mkdir -p /etc/security; \
     : > /opt/hardn-xdr/.hardening_complete; \
-    cat > /etc/sysctl.d/99-hardening.conf <<'SYSCTL'
-### sysctl for Docker
-kernel.kptr_restrict=2
-kernel.dmesg_restrict=1
-kernel.randomize_va_space=2
-net.ipv4.conf.all.accept_redirects=0
-net.ipv4.conf.all.accept_source_route=0
-net.ipv4.conf.all.log_martians=1
-net.ipv4.conf.all.rp_filter=1
-net.ipv4.conf.default.accept_redirects=0
-net.ipv4.conf.default.accept_source_route=0
-net.ipv4.conf.default.log_martians=1
-net.ipv4.icmp_echo_ignore_broadcasts=1
-net.ipv4.icmp_ignore_bogus_error_responses=1
-net.ipv4.tcp_syncookies=1
-net.ipv6.conf.all.accept_redirects=0
-net.ipv6.conf.default.accept_redirects=0
-fs.protected_fifos=2
-fs.protected_regular=2
-SYSCTL
+    printf '%s\n' \
+        "### sysctl for Docker" \
+        "kernel.kptr_restrict=2" \
+        "kernel.dmesg_restrict=1" \
+        "kernel.randomize_va_space=2" \
+        "net.ipv4.conf.all.accept_redirects=0" \
+        "net.ipv4.conf.all.accept_source_route=0" \
+        "net.ipv4.conf.all.log_martians=1" \
+        "net.ipv4.conf.all.rp_filter=1" \
+        "net.ipv4.conf.default.accept_redirects=0" \
+        "net.ipv4.conf.default.accept_source_route=0" \
+        "net.ipv4.conf.default.log_martians=1" \
+        "net.ipv4.icmp_echo_ignore_broadcasts=1" \
+        "net.ipv4.icmp_ignore_bogus_error_responses=1" \
+        "net.ipv4.tcp_syncookies=1" \
+        "net.ipv6.conf.all.accept_redirects=0" \
+        "net.ipv6.conf.default.accept_redirects=0" \
+        "fs.protected_fifos=2" \
+        "fs.protected_regular=2" \
+        > /etc/sysctl.d/99-hardening.conf
+
 RUN sysctl -p /etc/sysctl.d/99-hardening.conf || true
 
 # ---------- Hardening additions to satisfy scan recommendations ----------
@@ -114,15 +117,16 @@ RUN find /etc/ssl -type f \( -name '*.key' -o -name '*-key.pem' -o -name '*_key.
 
 # System-wide TLS policy: OpenSSL ≥ TLS1.2 (seclevel 2) + ensure include, and GnuTLS legacy disable
 RUN mkdir -p /etc/ssl/openssl.cnf.d \
- && cat > /etc/ssl/openssl.cnf.d/10-hardn.cnf <<'EOF'
-[openssl_init]
-ssl_conf = ssl_sect
-[ssl_sect]
-system_default = system_default_sect
-[system_default_sect]
-MinProtocol = TLSv1.2
-CipherString = DEFAULT:@SECLEVEL=2
-EOF
+ && printf '%s\n' \
+    '[openssl_init]' \
+    'ssl_conf = ssl_sect' \
+    '[ssl_sect]' \
+    'system_default = system_default_sect' \
+    '[system_default_sect]' \
+    'MinProtocol = TLSv1.2' \
+    'CipherString = DEFAULT:@SECLEVEL=2' \
+    > /etc/ssl/openssl.cnf.d/10-hardn.cnf
+
 RUN grep -q 'openssl\.cnf\.d' /etc/ssl/openssl.cnf || \
     printf '\n# HARDN policy\n.include /etc/ssl/openssl.cnf.d/10-hardn.cnf\n' >> /etc/ssl/openssl.cnf
 # Ensure OpenSSL reads our policy section
@@ -142,29 +146,29 @@ RUN if [ "$FAST_BUILD" != "1" ]; then \
 # Ensure /tmp and /var/tmp are sticky (1777)
 RUN chmod 1777 /tmp /var/tmp || true
 
-# Safe tar wrapper (Dockerfile heredoc, avoids parse errors)
-RUN install -m 0755 /dev/stdin /usr/local/bin/tar <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-_real="/usr/bin/tar"
-
-extract=0; prev=""; archive=""
-for a in "$@"; do
-  [[ "$a" == "-x" || "$a" == "--extract" ]] && extract=1
-  if [[ "$prev" == "-f" || "$prev" == "--file" ]] ; then archive="$a"; prev=""; continue; fi
-  [[ "$a" == "-f" || "$a" == "--file" ]] && prev="$a"
-done
-
-if [[ $extract -eq 1 && -n "${archive:-}" ]]; then
-  "$_real" -tf "$archive" | awk '/^(\/|.*\/\.\.\/|^\.\.\/)/ {print "E: unsafe path: " $0 > "/dev/stderr"; bad=1} END {exit bad}'
-  if "$_real" -tvf "$archive" | grep -Eq "^[lh]"; then
-    echo "E: archive contains link entries; refusing extraction" >&2; exit 1
-  fi
-  exec "$_real" "$@" --no-same-owner --no-same-permissions --keep-old-files --no-overwrite-dir --delay-directory-restore
-else
-  exec "$_real" "$@"
-fi
-SH
+# Safe tar wrapper (avoid heredoc parse errors)
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    '_real="/usr/bin/tar"' \
+    '' \
+    'extract=0; prev=""; archive=""' \
+    'for a in "$@"; do' \
+    '  [[ "$a" == "-x" || "$a" == "--extract" ]] && extract=1' \
+    '  if [[ "$prev" == "-f" || "$prev" == "--file" ]] ; then archive="$a"; prev=""; continue; fi' \
+    '  [[ "$a" == "-f" || "$a" == "--file" ]] && prev="$a"' \
+    'done' \
+    '' \
+    'if [[ $extract -eq 1 && -n "${archive:-}" ]]; then' \
+    '  "$_real" -tf "$archive" | awk '"'"'/^(\/|.*\/\.\.\/|^\.\.\/)/ {print "E: unsafe path: " $0 > "/dev/stderr"; bad=1} END {exit bad}'"'"'' \
+    '  if "$_real" -tvf "$archive" | grep -Eq "^[lh]"; then' \
+    '    echo "E: archive contains link entries; refusing extraction" >&2; exit 1' \
+    '  fi' \
+    '  exec "$_real" "$@" --no-same-owner --no-same-permissions --keep-old-files --no-overwrite-dir --delay-directory-restore' \
+    'else' \
+    '  exec "$_real" "$@"' \
+    'fi' \
+    > /usr/local/bin/tar && chmod 0755 /usr/local/bin/tar
 
 # -----------------------------------------------------------------------
 
