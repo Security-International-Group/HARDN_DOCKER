@@ -48,6 +48,11 @@ hardn-xdr-deb/
 ### Release
 Here you can find the latest GHCR Release.
 - [Releases](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/releases)
+### Start
+```
+sudo start_docker.sh
+```
+- This will be the start to the container and builds as it shows bellow. 
   
 ## Build
 ```bash
