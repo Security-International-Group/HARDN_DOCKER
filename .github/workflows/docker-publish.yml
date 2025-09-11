@@ -241,7 +241,7 @@ jobs:
            docker pull ghcr.io/${{ steps.repo.outputs.name }}:${{ steps.version.outputs.next }}
            \`\`\`
 
-           Full notes and docs in repo.
+           For full deployment steps and deployment review README. 
           EOF
 
       - name: Create GitHub Release
@@ -249,10 +249,35 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.next }}
-          body_path: release_body.md         # <— use the file we just wrote
+          body_path: release_body.md         
           generate_release_notes: false
           files: |
             artifacts/stig_report.html
             artifacts/stig_results.xml
             sbom.spdx.json
         continue-on-error: false 
+
+      - name: Discord notify
+        if: always()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          STATUS="${{ job.status }}"
+          MSG="Install Test: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          if command -v hardn-discord.sh >/dev/null 2>&1; then
+            if [[ "$STATUS" == "success" ]]; then
+              hardn-discord.sh "OK" "$MSG" || true
+            else
+              hardn-discord.sh "FAILED" "$MSG" || true
+            fi
+          elif [[ -n "${WEBHOOK:-}" ]]; then
+            COLOR=15105570
+            [[ "$STATUS" == "success" ]] && COLOR=3066993 || true
+            [[ "$STATUS" == "failure" ]] && COLOR=15158332 || true
+            curl -H "Content-Type: application/json" -X POST "$WEBHOOK" \
+              -d "{"embeds":[{"title":"Install Test • ${{ github.repository }}","description":"Status: **${{ job.status }}** on \\`${{ github.ref }}\\`","color":$COLOR,"url":"$MSG"}]}" || true
+          else
+            echo "[INFO] No Discord webhook configured; skipping notification."
+          fi
