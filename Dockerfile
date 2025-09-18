@@ -53,6 +53,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt/*
 
+# Security update: Ensure expat package is updated to fix CVE
+RUN apt-get update && \
+    apt-get install -y --only-upgrade libexpat1 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p /etc/sysctl.d /etc/iptables ${HARDN_XDR_HOME} /opt/hardn-xdr/docs /var/log/security
 
 # Non-root user (CIS 5.4)
