@@ -68,13 +68,13 @@ The container runs as a non-root user with comprehensive security hardening whil
 
 ## Security Features
 
-- ✅ CIS Docker Benchmark v1.13.0 compliant
-- ✅ Non-root user execution
-- ✅ Read-only root filesystem
-- ✅ AppArmor security profiles
-- ✅ No new privileges
-- ✅ Memory and CPU limits
-- ✅ Comprehensive logging
+- CIS Docker Benchmark v1.13.0 compliant
+- Non-root user execution
+- Read-only root filesystem
+- AppArmor security profiles
+- No new privileges
+- Memory and CPU limits
+- Comprehensive logging
 
 ## Project Links
 
@@ -108,8 +108,6 @@ The container runs as a non-root user with comprehensive security hardening whil
 ## Packages
 - Current GHCR-OCI [Package](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/pkgs/container/hardn_debian_docker_image)
 - [Docker Hub](https://hub.docker.com/r/tburns0321/hardn-xdr)
-
-
 
 ## Architecture
 
