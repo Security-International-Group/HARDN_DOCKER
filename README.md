@@ -199,8 +199,6 @@ Some CIS requirements must be configured at the Docker daemon (host) level becau
 - **Socket ownership** - Host file permissions
 - **Content trust** - Host environment variable
 
-```
-
 ### Files
 - `daemon.json` - Minimal host-level Docker daemon configuration
 - `docker-compose.yml` - Container-specific security settings
@@ -213,9 +211,8 @@ echo " HARDN-XDR Container Health Check"
 echo " CIS Docker Benchmark 1.13.0 Compliance"
 echo "=========================================="
 
-# CIS 4.1: Ensure a user for the container has been created...
 ```
-
+# CIS 4.1: Ensure a user for the container has been created...
 
 ## Security
 - Reporting a Vulnerability or compliance > [Security Policy](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/security/policy)
