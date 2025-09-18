@@ -1,3 +1,19 @@
+<p align="center">
+  <img src="src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png" alt="hardn-docker" width="690"/>
+  <br>
+  <a href="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml/badge.svg" alt="Docker"/>
+  </a>
+  <a href="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml">
+    <img src="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml/badge.svg" alt="Trivy"/>
+  </a>
+</p>
+
+<div align="center">
+  <h1>HARDN_Debian_Docker_image</h1>
+
+
+</div>
 # HARDN-XDR Hardened Docker Image
 
 A security-hardened Debian-based Docker image that can host applications while maintaining CIS compliance and security best practices.
