@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1.7
 FROM debian:trixie-slim
 
+###############################################
+# H A R D N - X D R   D o c k e r   I m a g e #
+###############################################
+
 SHELL ["/bin/bash","-o","pipefail","-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -34,13 +38,6 @@ ARG WITH_STIG_TOOLS=0
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     set -eux; \
-    rm -f /etc/apt/sources.list.d/debian.sources; \
-    printf '%s\n' \
-      "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" \
-      "deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware" \
-      "deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware" \
-      "deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" \
-      > /etc/apt/sources.list; \
     apt-get update --error-on=any; \
     apt-get -y upgrade; \
     apt-get install -y --no-install-recommends \
@@ -62,9 +59,8 @@ RUN mkdir -p /etc/sysctl.d /etc/iptables ${HARDN_XDR_HOME} /opt/hardn-xdr/docs /
 RUN groupadd -g "${HARDN_GID}" -r hardn \
  && useradd  -u "${HARDN_UID}" -g "${HARDN_GID}" -r -s /usr/sbin/nologin -d /home/hardn -c "HARDN-XDR User" hardn \
  && mkdir -p /home/hardn /var/lib/hardn /opt/hardn-xdr/state \
- && chown -R hardn:hardn /home/hardn /var/lib/hardn /opt/hardn-xdr/state \
  && chmod 755 /home/hardn /var/lib/hardn /opt/hardn-xdr/state \
- && : > /opt/hardn-xdr/state/hardn-cron.log && chown hardn:hardn /opt/hardn-xdr/state/hardn-cron.log
+ && : > /opt/hardn-xdr/state/hardn-cron.log
 
 WORKDIR /opt/hardn-xdr
 
@@ -104,16 +100,13 @@ RUN set -eux; \
 
 RUN sysctl -p /etc/sysctl.d/99-hardening.conf || true
 
-# ---------- Hardening additions to satisfy scan recommendations ----------
-
 # TLS private-key ownership/permissions
 RUN mkdir -p /etc/ssl/private \
- && chown -R root:root /etc/ssl/private \
  && chmod 0700 /etc/ssl/private \
  && find /etc/ssl/private -type f -exec chmod 0600 {} \; || true
 # Also catch stray keys under /etc/ssl (extra safety)
 RUN find /etc/ssl -type f \( -name '*.key' -o -name '*-key.pem' -o -name '*_key.pem' \) \
-      -exec chown root:root {} \; -exec chmod 0600 {} \; || true
+      -exec chmod 0600 {} \; || true
 
 # System-wide TLS policy: OpenSSL ≥ TLS1.2 (seclevel 2) + ensure include, and GnuTLS legacy disable
 RUN mkdir -p /etc/ssl/openssl.cnf.d \
@@ -180,6 +173,27 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 RUN /usr/local/bin/deb.hardn.sh || echo "HARDN setup complete"
 
+# Enable AppArmor after installation
+RUN set -eux; \
+    # Start AppArmor service if available
+    if [ -f /etc/init.d/apparmor ]; then \
+        /etc/init.d/apparmor start || true; \
+    fi; \
+    # Load AppArmor profiles
+    if [ -d /etc/apparmor.d/ ]; then \
+        apparmor_parser -r /etc/apparmor.d/ 2>/dev/null || true; \
+    fi; \
+    # Enable AppArmor in kernel if possible
+    if [ -f /sys/module/apparmor/parameters/enabled ]; then \
+        echo "Y" > /sys/module/apparmor/parameters/enabled 2>/dev/null || true; \
+    fi; \
+    # Load the HARDN AppArmor profile specifically
+    if [ -f /etc/apparmor.d/usr.bin.hardn ]; then \
+        apparmor_parser -r /etc/apparmor.d/usr.bin.hardn 2>/dev/null || true; \
+    fi; \
+    # Verify AppArmor is working
+    apparmor_status 2>/dev/null || echo "AppArmor status check completed"
+
 # Auth & umask defaults
 RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.defs && \
     sed -ri 's/^#?SHA_CRYPT_MAX_ROUNDS.*/SHA_CRYPT_MAX_ROUNDS 50000/' /etc/login.defs && \
@@ -196,6 +210,106 @@ RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && find /usr/share -type f \( -name "*.gz" -o -name "*.bz2" -o -name "*.xz" \) -delete 2>/dev/null || true \
  && rm -rf /usr/share/locale/* /usr/share/i18n/* /usr/share/doc/* /usr/share/man/* 2>/dev/null || true \
  && find /var/log -type f -exec truncate -s 0 {} \; || true
+
+# Create AppArmor profile for the container
+RUN set -eux; \
+    mkdir -p /etc/apparmor.d; \
+    printf '%s\n' \
+        '#include <tunables/global>' \
+        '' \
+        'profile hardn /usr/local/bin/entrypoint.sh {' \
+        '  #include <abstractions/base>' \
+        '  #include <abstractions/nameservice>' \
+        '  #include <abstractions/user-tmp>' \
+        '' \
+        '  # Allow read access to necessary files' \
+        '  /usr/local/bin/entrypoint.sh r,' \
+        '  /usr/local/bin/deb.hardn.sh r,' \
+        '  /usr/local/bin/health_check.sh r,' \
+        '  /usr/local/bin/smoke_test.sh r,' \
+        '  /sources/** r,' \
+        '  /etc/passwd r,' \
+        '  /etc/group r,' \
+        '  /etc/ssl/certs/** r,' \
+        '  /etc/localtime r,' \
+        '  /proc/*/status r,' \
+        '  /proc/version r,' \
+        '  /sys/kernel/mm/transparent_hugepage/enabled r,' \
+        '' \
+        '  # Allow execution of scripts' \
+        '  /usr/local/bin/deb.hardn.sh x,' \
+        '  /usr/local/bin/health_check.sh x,' \
+        '  /usr/local/bin/smoke_test.sh x,' \
+        '  /sources/**/*.sh x,' \
+        '' \
+        '  # Allow network access' \
+        '  network inet stream,' \
+        '  network inet dgram,' \
+        '' \
+        '  # Deny dangerous capabilities' \
+        '  deny capability sys_admin,' \
+        '  deny capability sys_ptrace,' \
+        '  deny capability sys_module,' \
+        '  deny capability dac_override,' \
+        '  deny capability dac_read_search,' \
+        '  deny capability setgid,' \
+        '  deny capability setuid,' \
+        '  deny capability chown,' \
+        '' \
+        '  # Allow basic capabilities needed for operation (excluding chown)' \
+        '  capability fsetid,' \
+        '  capability kill,' \
+        '  capability setpcap,' \
+        '' \
+        '  # Allow writing to allowed directories' \
+        '  /var/log/** w,' \
+        '  /var/lib/hardn/** w,' \
+        '  /tmp/** w,' \
+        '  /opt/hardn-xdr/** w,' \
+        '' \
+        '  # Allow reading from /proc and /sys for monitoring' \
+        '  /proc/** r,' \
+        '  /sys/** r,' \
+        '' \
+        '  # Allow signal handling' \
+        '  signal (send,receive) peer=hardn,' \
+        '}' \
+        > /etc/apparmor.d/usr.bin.hardn
+
+# Create SELinux policy (if SELinux is available)
+RUN set -eux; \
+    if command -v checkmodule >/dev/null 2>&1; then \
+        printf '%s\n' \
+            'policy_module(hardn, 1.0.0)' \
+            '' \
+            'require {' \
+            '    type unconfined_t;' \
+            '    type user_home_t;' \
+            '    class process { transition sigchld sigkill sigstop signull signal };' \
+            '    class file { read write execute open getattr };' \
+            '}' \
+            '' \
+            'type hardn_t;' \
+            'type hardn_exec_t;' \
+            '' \
+            'init_daemon_domain(hardn_t, hardn_exec_t)' \
+            '' \
+            'allow hardn_t self:process { signal sigchld sigkill sigstop signull };' \
+            'allow hardn_t user_home_t:file { read write execute open getattr };' \
+            'allow hardn_t unconfined_t:process signal;' \
+            > /tmp/hardn.te; \
+        checkmodule -M -m -o /tmp/hardn.mod /tmp/hardn.te && \
+        semodule_package -o /tmp/hardn.pp -m /tmp/hardn.mod && \
+        semodule -i /tmp/hardn.pp 2>/dev/null || true; \
+    fi
+
+# ---- Application Stage ----
+# Install Python and Flask for the sample application
+RUN apt-get update && apt-get install -y --no-install-recommends python3-flask && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy the application into the container. WORKDIR is already /opt/hardn-xdr
+COPY --chown=hardn:hardn src/app.py .
 
 # ---- OCI labels (final stage, cache-friendly placement) ----
 LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
@@ -226,5 +340,17 @@ LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
       security.audit="enabled"
 
 STOPSIGNAL SIGTERM
+
+# Configure runtime security environment variables
+ENV MEMORY_LIMIT=512m \
+    CPU_SHARES=1024 \
+    PIDS_LIMIT=1024 \
+    NO_NEW_PRIVILEGES=true \
+    READONLY_ROOTFS=true \
+    RESTART_POLICY=on-failure:5 \
+    APPARMOR_PROFILE=usr.bin.hardn \
+    SELINUX_CONTEXT=hardn_t
+
 USER ${HARDN_UID}:${HARDN_GID}
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["python3", "app.py"]

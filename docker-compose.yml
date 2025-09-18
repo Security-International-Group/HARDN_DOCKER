@@ -3,41 +3,40 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hardn-xdr-container
-    restart: unless-stopped
+    image: hardn-xdr:latest
+    container_name: hardn_docker
+    restart: on-failure:5
+    user: "10001:10001"  # Run as non-root user
 
-    # Resource limits for optimal performance
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: '1.0'
-        reservations:
-          memory: 3000M
-          cpus: '1.5'
+    # Resource limits (CIS 5.10, 5.11, 5.28)
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpu_shares: 1024
+    cpu_quota: 100000
+    cpu_period: 100000
+    pids_limit: 1024
 
-    # Security and isolation (FIXED for compatibility)
+    # Security and isolation (CIS 5.1, 5.2, 5.3, 5.25)
     security_opt:
+      - apparmor=usr.bin.hardn
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-      - SYS_ADMIN
-    # read_only: true  # Temporarily disabled for debugging
+    cap_add: []  # No capabilities added to avoid CIS warnings
+    read_only: true
     tmpfs:
-      - /tmp:noexec,nosuid,size=100m
-      - /var/tmp:noexec,nosuid,size=50m
-      - /var/run:noexec,nosuid,size=10m
-      - /var/log:noexec,nosuid,size=50m
-
-    # Networking
-    network_mode: bridge
-    ports:
-      - "127.0.0.1:8089:8089"  # Example port, adjust as needed
-
-    # Volumes for persistent data
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+      - /run:rw,noexec,nosuid,size=16m,mode=0755
+      - /home/hardn:rw,size=32m,mode=0755
+      - /var/lib/hardn:rw,size=32m,mode=0755
+    userns_mode: host  # Use host user namespaces
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    #######################################################
+    # Volumes for persistent data (read-only root filesystem)
     volumes:
       - ./logs:/opt/hardn-xdr/state:rw
       - ./config:/opt/hardn-xdr/config:ro
@@ -47,11 +46,12 @@ services:
       - TZ=UTC
       - LANG=C.UTF-8
       - LC_ALL=C.UTF-8
-      - DOCKER_MEMORY_LIMIT=4g
+      - DOCKER_MEMORY_LIMIT=512m
       - DOCKER_CPU_SHARES=1024
       - MALLOC_ARENA_MAX=1
+      - DOCKER_CONTENT_TRUST=1
 
-    # Health check
+    # Health check (CIS 5.26)
     healthcheck:
       test: ["CMD", "/usr/local/bin/health_check.sh"]
       interval: 30s
@@ -59,23 +59,17 @@ services:
       retries: 3
       start_period: 60s
 
-    # Logging
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    ports:
+      - "8082:5000"
 
-    # Labels for organization
+    # Labels for organization and compliance
     labels:
       - "project=hardn-xdr"
       - "version=1.0"
       - "security.level=high"
       - "compliance=cis-1.13.0"
-
-networks:
-  default:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+      - "security.apparmor=enabled"
+      - "security.selinux=disabled"
+      - "security.readonly.rootfs=true"
+      - "security.no.new.privileges=true"
+      - "security.capabilities=restricted"

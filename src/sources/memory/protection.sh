@@ -6,9 +6,14 @@
 prevent_core_dumps() {
     echo "Configuring core dump prevention..."
 
-    # Disable core dumps via limits
-    echo "* hard core 0" >> /etc/security/limits.conf
-    echo "* soft core 0" >> /etc/security/limits.conf
+    # Check if filesystem is read-only
+    if mount | grep -q " / ro," 2>/dev/null; then
+        echo "Read-only filesystem detected - skipping limits.conf modifications"
+    else
+        # Disable core dumps via limits
+        echo "* hard core 0" >> /etc/security/limits.conf
+        echo "* soft core 0" >> /etc/security/limits.conf
+    fi
 
     # Disable core dumps via sysctl
     echo "kernel.core_uses_pid = 0" >> /etc/sysctl.conf
@@ -28,23 +33,28 @@ prevent_core_dumps() {
 configure_memory_protection() {
     echo "Configuring memory protections..."
 
-    # Randomize memory layout
-    echo "kernel.randomize_va_space = 2" >> /etc/sysctl.conf
+    # Check if filesystem is read-only before trying to modify /etc/sysctl.conf
+    if ! mount | grep -q " / ro," 2>/dev/null; then
+        # Randomize memory layout
+        echo "kernel.randomize_va_space = 2" >> /etc/sysctl.conf
 
-    # Prevent ptrace exploitation
-    echo "kernel.yama.ptrace_scope = 1" >> /etc/sysctl.conf
+        # Prevent ptrace exploitation
+        echo "kernel.yama.ptrace_scope = 1" >> /etc/sysctl.conf
 
-    # Restrict kernel pointer access
-    echo "kernel.kptr_restrict = 2" >> /etc/sysctl.conf
+        # Restrict kernel pointer access
+        echo "kernel.kptr_restrict = 2" >> /etc/sysctl.conf
 
-    # Hide kernel symbols
-    echo "kernel.dmesg_restrict = 1" >> /etc/sysctl.conf
+        # Hide kernel symbols
+        echo "kernel.dmesg_restrict = 1" >> /etc/sysctl.conf
 
-    # Apply settings
-    if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
-        echo "Container environment detected - skipping sysctl application"
+        # Apply settings
+        if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
+            echo "Container environment detected - skipping sysctl application"
+        else
+            sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || echo "Warning: Some sysctl settings could not be applied"
+        fi
     else
-        sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || echo "Warning: Some sysctl settings could not be applied"
+        echo "Read-only filesystem detected - skipping /etc/sysctl.conf modifications"
     fi
 
     echo "Memory protections configured"
@@ -54,18 +64,23 @@ configure_memory_protection() {
 setup_buffer_overflow_protection() {
     echo "Setting up buffer overflow protections..."
 
-    # Enable ExecShield (if available)
-    if [ -f /proc/sys/kernel/exec-shield ]; then
-        echo "1" > /proc/sys/kernel/exec-shield 2>/dev/null || true
-    fi
+    # Check if filesystem is read-only before trying to modify /proc
+    if ! mount | grep -q " / ro," 2>/dev/null; then
+        # Enable ExecShield (if available)
+        if [ -f /proc/sys/kernel/exec-shield ]; then
+            echo "1" > /proc/sys/kernel/exec-shield 2>/dev/null || true
+        fi
 
-    # Configure stack protection
-    if [ -f /proc/sys/kernel/randomize_va_space ]; then
-        echo "2" > /proc/sys/kernel/randomize_va_space 2>/dev/null || true
-    fi
+        # Configure stack protection
+        if [ -f /proc/sys/kernel/randomize_va_space ]; then
+            echo "2" > /proc/sys/kernel/randomize_va_space 2>/dev/null || true
+        fi
 
-    # Set restrictive umask for memory-mapped files
-    echo "vm.mmap_min_addr = 65536" >> /etc/sysctl.conf
+        # Set restrictive umask for memory-mapped files
+        echo "vm.mmap_min_addr = 65536" >> /etc/sysctl.conf
+    else
+        echo "Read-only filesystem detected - skipping /proc and /etc modifications"
+    fi
 
     echo "Buffer overflow protections enabled"
 }
@@ -125,18 +140,23 @@ EOF
 configure_oom_protection() {
     echo "Configuring OOM protection..."
 
-    # Set OOM score adjustment for critical processes
-    echo "vm.oom_kill_allocating_task = 0" >> /etc/sysctl.conf
+    # Check if filesystem is read-only before trying to modify /etc/sysctl.conf
+    if ! mount | grep -q " / ro," 2>/dev/null; then
+        # Set OOM score adjustment for critical processes
+        echo "vm.oom_kill_allocating_task = 0" >> /etc/sysctl.conf
 
-    # Configure memory overcommit
-    echo "vm.overcommit_memory = 1" >> /etc/sysctl.conf
-    echo "vm.overcommit_ratio = 50" >> /etc/sysctl.conf
+        # Configure memory overcommit
+        echo "vm.overcommit_memory = 1" >> /etc/sysctl.conf
+        echo "vm.overcommit_ratio = 50" >> /etc/sysctl.conf
 
-    # Apply settings
-    if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
-        echo "Container environment detected - skipping sysctl application"
+        # Apply settings
+        if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
+            echo "Container environment detected - skipping sysctl application"
+        else
+            sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || echo "Warning: Some sysctl settings could not be applied"
+        fi
     else
-        sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || echo "Warning: Some sysctl settings could not be applied"
+        echo "Read-only filesystem detected - skipping /etc/sysctl.conf modifications"
     fi
 
     echo "OOM protection configured"

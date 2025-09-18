@@ -135,7 +135,10 @@ configure_root_access() {
     # Secure root home directory
     if [ -d /root ]; then
         chmod 700 /root 2>/dev/null || true
-        chown root:root /root 2>/dev/null || true
+        # Skip chown on read-only filesystem
+        if ! mount | grep -q " / ro," 2>/dev/null; then
+            chown root:root /root 2>/dev/null || true
+        fi
     fi
 
     # Configure secure root shell
