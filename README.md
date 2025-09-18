@@ -1,3 +1,19 @@
+<p align="center">
+  <img src="src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png" alt="hardn-docker" width="690"/>
+  <br>
+  <a href="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/docker-publish.yml/badge.svg" alt="Docker"/>
+  </a>
+  <a href="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml">
+    <img src="https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/actions/workflows/trivy.yml/badge.svg" alt="Trivy"/>
+  </a>
+</p>
+
+<div align="center">
+  <h1>HARDN_Debian_Docker_image</h1>
+
+
+</div>
 # HARDN-XDR Hardened Docker Image
 
 A security-hardened Debian-based Docker image that can host applications while maintaining CIS compliance and security best practices.
@@ -52,13 +68,13 @@ The container runs as a non-root user with comprehensive security hardening whil
 
 ## Security Features
 
-- ✅ CIS Docker Benchmark v1.13.0 compliant
-- ✅ Non-root user execution
-- ✅ Read-only root filesystem
-- ✅ AppArmor security profiles
-- ✅ No new privileges
-- ✅ Memory and CPU limits
-- ✅ Comprehensive logging
+- CIS Docker Benchmark v1.13.0 compliant
+- Non-root user execution
+- Read-only root filesystem
+- AppArmor security profiles
+- No new privileges
+- Memory and CPU limits
+- Comprehensive logging
 
 ## Project Links
 
@@ -92,8 +108,6 @@ The container runs as a non-root user with comprehensive security hardening whil
 ## Packages
 - Current GHCR-OCI [Package](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/pkgs/container/hardn_debian_docker_image)
 - [Docker Hub](https://hub.docker.com/r/tburns0321/hardn-xdr)
-
-
 
 ## Architecture
 
@@ -185,8 +199,6 @@ Some CIS requirements must be configured at the Docker daemon (host) level becau
 - **Socket ownership** - Host file permissions
 - **Content trust** - Host environment variable
 
-```
-
 ### Files
 - `daemon.json` - Minimal host-level Docker daemon configuration
 - `docker-compose.yml` - Container-specific security settings
@@ -199,9 +211,8 @@ echo " HARDN-XDR Container Health Check"
 echo " CIS Docker Benchmark 1.13.0 Compliance"
 echo "=========================================="
 
-# CIS 4.1: Ensure a user for the container has been created...
 ```
-
+# CIS 4.1: Ensure a user for the container has been created...
 
 ## Security
 - Reporting a Vulnerability or compliance > [Security Policy](https://github.com/OpenSource-For-Freedom/hardn_debian_docker_image/security/policy)
