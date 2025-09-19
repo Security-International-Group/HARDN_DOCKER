@@ -20,7 +20,7 @@ A security-hardened Debian-based Docker image that can host applications while m
 
 ## Docker Hub
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/tburns0321/hardn-xdr)](https://hub.docker.com/r/tburns0321/hardn-xdr)
+[![Docker Pulls](https://img.shields.io/docker/pulls/tburns0321/hardn-docker)](https://hub.docker.com/r/tburns0321/hardn-docker)
 
 **Pull from Docker Hub:**
 ```bash
