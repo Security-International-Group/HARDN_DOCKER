@@ -441,6 +441,53 @@ EOF
     echo "Docker authorization plugin configured"
 }
 
+# Function to configure Docker auditing
+configure_docker_auditing() {
+    echo "Configuring Docker auditing..."
+
+    # Create audit rules directory if it doesn't exist
+    mkdir -p /etc/audit/rules.d
+
+    # Create Docker audit rules
+    cat > /etc/audit/rules.d/99-docker.rules << 'EOF'
+# Docker audit rules
+-w /var/lib/docker -k docker
+-w /etc/docker -k docker
+-w /usr/lib/systemd/system/docker.service -k docker
+-w /usr/lib/systemd/system/docker.socket -k docker
+-w /var/run/docker.sock -k docker
+-w /usr/bin/docker -k docker
+-w /usr/bin/dockerd -k docker
+EOF
+
+    # Load the audit rules
+    if command -v augenrules >/dev/null 2>&1; then
+        augenrules --load || echo "Warning: Failed to load audit rules"
+    elif command -v service >/dev/null 2>&1; then
+        service auditd restart || echo "Warning: Failed to restart auditd"
+    else
+        echo "Warning: Could not load audit rules, please restart auditd manually"
+    fi
+
+    echo "Docker audit rules configured and loaded"
+}
+
+# Function to restart Docker daemon
+restart_docker_daemon() {
+    echo "Restarting Docker daemon to apply configuration changes..."
+
+    # Restart Docker service
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart docker || echo "Warning: Failed to restart Docker via systemctl"
+    elif command -v service >/dev/null 2>&1; then
+        service docker restart || echo "Warning: Failed to restart Docker via service"
+    else
+        echo "Warning: Could not determine init system, please restart Docker manually"
+    fi
+
+    echo "Docker daemon restarted"
+}
+
 # Function to verify Docker daemon configuration
 verify_docker_config() {
     echo "Verifying Docker daemon configuration..."
@@ -467,7 +514,47 @@ verify_docker_config() {
         echo "✗ Docker seccomp profile missing"
     fi
 
+    # Check audit rules
+    if [ -f /etc/audit/rules.d/99-docker.rules ]; then
+        echo "✓ Docker audit rules exist"
+    else
+        echo "✗ Docker audit rules missing"
+    fi
+
     return 0
+}
+
+# Function to configure Docker authorization plugin
+configure_docker_authz() {
+    echo "Configuring Docker authorization plugin..."
+
+    # Create a simple authorization plugin configuration
+    mkdir -p /etc/docker/plugins
+
+    # For now, we'll create a placeholder - in production you'd use a real authz plugin
+    cat > /etc/docker/authz-config.json << 'EOF'
+{
+  "name": "authz-broker",
+  "type": "authorization",
+  "config": {
+    "allow_all": false,
+    "policies": [
+      {
+        "name": "default",
+        "rules": [
+          {
+            "subjects": ["hardn"],
+            "actions": ["*"],
+            "conditions": []
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    echo "Docker authorization plugin configured"
 }
 
 # Main execution
@@ -479,7 +566,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     configure_docker_tls
     configure_docker_seccomp
     configure_docker_authz
+    configure_docker_auditing
     verify_docker_config
+    restart_docker_daemon
+    restart_docker_daemon
+    check_docker_partition
 
     echo ""
     echo "Docker daemon security configuration completed."

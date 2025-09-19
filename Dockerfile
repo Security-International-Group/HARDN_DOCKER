@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
-FROM debian:trixie-slim
+# Aliases: 13, 13.1, latest, trixie, trixie-20250908
+FROM debian:13.1-slim@sha256:c2880112cc5c61e1200c26f106e4123627b49726375eb5846313da9cca117337
 
 ###############################################
 # H A R D N - X D R   D o c k e r   I m a g e #
@@ -14,7 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG VCS_REF=""
 ARG BUILD_DATE=""
 ARG VERSION="1.0.1"
-ARG REPO_URL="https://github.com/opensource-for-freedom/hardn_debian_docker_image"
+ARG REPO_URL="https://github.com/security-international-group/hardn_docker"
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
@@ -53,9 +54,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt/*
 
-# Security update: Ensure expat package is updated to fix CVE
+# Remove expat dependency to eliminate CVE-2025-59375
 RUN apt-get update && \
-    apt-get install -y --only-upgrade libexpat1 && \
+    apt-get purge -y python3 python3-minimal python3.13 python3.13-minimal python3-apparmor python3-libapparmor python3-systemd libpython3-stdlib libpython3.13-minimal libpython3.13-stdlib && \
+    apt-get purge -y libexpat1 expat && \
+    apt-get autoremove -y --purge && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -310,12 +313,26 @@ RUN set -eux; \
     fi
 
 # ---- Application Stage ----
-# Install Python and Flask for the sample application
-RUN apt-get update && apt-get install -y --no-install-recommends python3-flask && \
+# Install busybox and socat for simple web serving (no Python/expat dependency)
+RUN apt-get update && apt-get install -y --no-install-recommends busybox socat && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy the application into the container. WORKDIR is already /opt/hardn-xdr
-COPY --chown=hardn:hardn src/app.py .
+# Create a simple web server using busybox httpd to serve a static index page
+RUN mkdir -p /var/www && \
+        printf '%s' 'Hello, World : ) This application is running inside the hardened container.' > /var/www/index.html && \
+        printf '%s\n' '#!/bin/sh' 'exec busybox httpd -f -p 5000 -h /var/www' > /usr/local/bin/simple-server && \
+        chmod +x /usr/local/bin/simple-server
+
+# Document the port the simple-server listens on
+EXPOSE 5000
+
+# Final purge after all installs to ensure expat/python can't be reintroduced by scripts
+RUN set -eux; \
+        apt-get update || true; \
+        apt-get purge -y python3 python3-minimal python3.13 python3.13-minimal python3-apparmor python3-libapparmor python3-systemd libpython3-stdlib libpython3.13-minimal libpython3.13-stdlib libexpat1 expat || true; \
+        apt-get autoremove -y --purge || true; \
+        apt-get clean || true; \
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # ---- OCI labels (final stage, cache-friendly placement) ----
 LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
@@ -359,4 +376,4 @@ ENV MEMORY_LIMIT=512m \
 
 USER ${HARDN_UID}:${HARDN_GID}
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["python3", "app.py"]
+CMD ["/usr/local/bin/simple-server"]

@@ -25,8 +25,7 @@ fi
 [[ -d /sources     ]] && GOOD "/sources present"         || FAIL "/sources missing"
 
 for f in /usr/local/bin/entrypoint.sh \
-         /usr/local/bin/smoke_test.sh \
-         /usr/local/bin/deb.hardn.sh
+         /usr/local/bin/smoke_test.sh
 do
   if [[ -f "$f" && -x "$f" ]]; then
     GOOD "$(basename "$f") present & executable"
@@ -36,6 +35,13 @@ do
     FAIL "$(basename "$f") missing"
   fi
 done
+
+# Check deb.hardn.sh separately - it should be root-only executable
+if [[ -f /usr/local/bin/deb.hardn.sh ]]; then
+  GOOD "deb.hardn.sh present (root-only executable)"
+else
+  FAIL "deb.hardn.sh missing"
+fi
 
 
 

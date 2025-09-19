@@ -176,14 +176,138 @@ detect_memory_leaks() {
     echo "Memory leak detection configured"
 }
 
-# Functions are available when sourced
-# export -f prevent_core_dumps
-# export -f configure_memory_protection
-# export -f setup_buffer_overflow_protection
-# export -f create_file_integrity_baseline
-# export -f monitor_memory_usage
-# export -f configure_oom_protection
-# export -f detect_memory_leaks
+# -----------------------------------------------------------------------------
+# Docker TLS generator
+# Generates a self-signed CA, server and client certificates for Docker daemon
+# Idempotent: will not overwrite existing certs unless FORCE_DOCKER_TLS=1
+# Writes files to /etc/docker (requires root on host)
+# -----------------------------------------------------------------------------
+generate_docker_tls() {
+    FORCE=${FORCE_DOCKER_TLS:-0}
+    DEST_DIR="/etc/docker"
+    mkdir -p "${DEST_DIR}" || true
+
+    CA_KEY="${DEST_DIR}/ca-key.pem"
+    CA_CERT="${DEST_DIR}/ca.pem"
+    SERVER_KEY="${DEST_DIR}/server-key.pem"
+    SERVER_CSR="${DEST_DIR}/server.csr"
+    SERVER_CERT="${DEST_DIR}/server-cert.pem"
+    CLIENT_KEY="${DEST_DIR}/client-key.pem"
+    CLIENT_CSR="${DEST_DIR}/client.csr"
+    CLIENT_CERT="${DEST_DIR}/client-cert.pem"
+
+    # If files exist and not forced, skip
+    if [ $FORCE -ne 1 ] && [ -f "${CA_CERT}" ] && [ -f "${SERVER_CERT}" ] && [ -f "${CLIENT_CERT}" ]; then
+        echo "[+] Docker TLS certs already present in ${DEST_DIR}; skipping (set FORCE_DOCKER_TLS=1 to overwrite)"
+        return 0
+    fi
+
+    echo "[+] Generating Docker TLS certificates in ${DEST_DIR}"
+
+    # Create a temporary OpenSSL config for SANs
+    SAN_CONF=$(mktemp)
+    cat > "${SAN_CONF}" <<'EOF'
+[ req ]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[ req_distinguished_name ]
+CN = docker.local
+
+[ v3_req ]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = localhost
+DNS.2 = docker.local
+IP.1 = 127.0.0.1
+EOF
+
+    # Generate CA
+    openssl genrsa -out "${CA_KEY}" 4096 2>/dev/null || true
+    openssl req -x509 -new -nodes -key "${CA_KEY}" -sha256 -days 3650 -out "${CA_CERT}" -subj "/CN=HARDN Docker CA" 2>/dev/null || true
+
+    # Server key & cert
+    openssl genrsa -out "${SERVER_KEY}" 4096 2>/dev/null || true
+    openssl req -new -key "${SERVER_KEY}" -out "${SERVER_CSR}" -config "${SAN_CONF}" 2>/dev/null || true
+    openssl x509 -req -in "${SERVER_CSR}" -CA "${CA_CERT}" -CAkey "${CA_KEY}" -CAcreateserial -out "${SERVER_CERT}" -days 3650 -sha256 -extensions v3_req -extfile "${SAN_CONF}" 2>/dev/null || true
+
+    # Client key & cert
+    openssl genrsa -out "${CLIENT_KEY}" 4096 2>/dev/null || true
+    openssl req -new -key "${CLIENT_KEY}" -out "${CLIENT_CSR}" -subj "/CN=hardn-client" 2>/dev/null || true
+    openssl x509 -req -in "${CLIENT_CSR}" -CA "${CA_CERT}" -CAkey "${CA_KEY}" -CAcreateserial -out "${CLIENT_CERT}" -days 3650 -sha256 2>/dev/null || true
+
+    # Set safe permissions
+    chmod 644 "${CA_CERT}" || true
+    chmod 644 "${SERVER_CERT}" || true
+    chmod 644 "${CLIENT_CERT}" || true
+    chmod 400 "${CA_KEY}" || true
+    chmod 400 "${SERVER_KEY}" || true
+    chmod 400 "${CLIENT_KEY}" || true
+
+    # Clean up
+    rm -f "${SERVER_CSR}" "${CLIENT_CSR}" "${SAN_CONF}" || true
+
+    echo "[+] Docker TLS artifacts written to ${DEST_DIR}"
+    echo "    * CA: ${CA_CERT}"
+    echo "    * Server: ${SERVER_CERT}"
+    echo "    * Server key: ${SERVER_KEY} (chmod 400)"
+    echo "    * Client cert: ${CLIENT_CERT}"
+    echo "    * Client key: ${CLIENT_KEY} (chmod 400)"
+    echo "[!] To enable TLS on the daemon, add these options to /etc/docker/daemon.json and restart Docker:"
+    echo '  "tls": true, "tlsverify": true, "tlscacert": "/etc/docker/ca.pem", "tlscert": "/etc/docker/server-cert.pem", "tlskey": "/etc/docker/server-key.pem"'
+}
+
+# -----------------------------------------------------------------------------
+# Configure no-new-privileges for Docker daemon
+# Sets "no-new-privileges": true in /etc/docker/daemon.json to prevent privilege escalation
+# -----------------------------------------------------------------------------
+configure_no_new_privileges() {
+    DAEMON_JSON="/etc/docker/daemon.json"
+    BACKUP="${DAEMON_JSON}.bak-$(date +%s)"
+
+    echo "[+] Configuring no-new-privileges in ${DAEMON_JSON}"
+
+    # Ensure /etc/docker exists
+    mkdir -p /etc/docker || true
+
+    # Backup existing file if present
+    if [ -f "${DAEMON_JSON}" ]; then
+        echo "    - backing up existing ${DAEMON_JSON} to ${BACKUP}"
+        cp -a "${DAEMON_JSON}" "${BACKUP}" || echo "    - warning: failed to backup existing daemon.json"
+    fi
+
+    # Write or update daemon.json with no-new-privileges
+    if command -v jq >/dev/null 2>&1 && [ -f "${DAEMON_JSON}" ]; then
+        # Merge existing JSON with no-new-privileges
+        tmp=$(mktemp)
+        jq '. + {"no-new-privileges": true}' "${DAEMON_JSON}" > "${tmp}" 2>/dev/null || true
+        if [ -s "${tmp}" ]; then
+            mv "${tmp}" "${DAEMON_JSON}"
+        else
+            echo "    - jq merge failed; overwriting with defaults"
+            cat > "${DAEMON_JSON}" <<'EOF'
+{
+  "no-new-privileges": true
+}
+EOF
+        fi
+    else
+        # No jq or no existing file: write minimal daemon.json
+        cat > "${DAEMON_JSON}" <<'EOF'
+{
+  "no-new-privileges": true
+}
+EOF
+    fi
+
+    chmod 644 "${DAEMON_JSON}" || true
+
+    echo "[+] no-new-privileges configured in daemon.json (restart Docker to apply)"
+}
 
 # Main execution - only run when script is executed directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ -n "${0}" ]] && [[ "${0}" != "bash" ]] && [[ "${0}" != "sh" ]]; then
