@@ -1,38 +1,20 @@
+
+![hardn](src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png)
+
 <p align="center">
-  ## Docker Hub
+ 
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/securityinternationalgroup/hardn-xdr)](https://hub.docker.com/r/securityinternationalgroup/hardn-xdr)
-
-**Pull from Docker Hub:**
-```bash
-docker pull tburns0321/hardn-docker:latest
-```="src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png" alt="hardn-docker" width="690"/>
-  <br>
-    <a href="https://github.com/securityinternationalgroup/HARDN_DOCKER/actions/workflows/docker-publish.yml">
-      <img src="https://github.com/securityinternationalgroup/HARDN_DOCKER/actions/workflows/docker-publish.yml/badge.svg" alt="Docker"/>
-    </a>
-    <a href="https://github.com/securityinternationalgroup/HARDN_DOCKER/actions/workflows/trivy.yml">
-      <img src="https://github.com/securityinternationalgroup/HARDN_DOCKER/actions/workflows/trivy.yml/badge.svg" alt="Trivy"/>
-    </a>
-</p>
-
-<div align="center">
-  <h1>HARDN_Debian_Docker_image</h1>
-
-
-</div>
-
-# HARDN-XDR Hardened Docker Image
+# Security International Group - Hardened Docker Image
 
 A security-hardened Debian-based Docker image that can host applications while maintaining CIS compliance and security best practices.
 
-## Docker Hub
+ ## Docker Hub
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/tburns0321/hardn-docker)](https://hub.docker.com/r/tburns0321/hardn-docker)
 
 **Pull from Docker Hub:**
 ```bash
-docker pull tburns0321/hardn-docker:latest
+docker pull tburns0321/hardn-docker:1.0.21
 ```
 ## Quick Start
 
