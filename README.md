@@ -133,6 +133,5 @@ hardn-xdr/
 │     ├─ security.sh          # Core security configurations
 │     ├─ selinux.sh           # SELinux policy configuration
 │     └─ docker-daemon.sh     # Docker daemon security (TLS, audit, etc.)
-├─ README.md                    # This documentation
-└─ SECURITY-REMEDIATION.md     # Security hardening guide
+├─ README.md                   
 ```
