@@ -19,7 +19,7 @@ is_apparmor_active() {
     # profile for this process
     local cur="unconfined"
     cur=$(cat /proc/self/attr/current 2>/dev/null || echo "unconfined")
-    [[ "$cur" != "unconfined" && -n "$cur" ]]
+    [[ "$cur" != "unconfined" && "$cur" ]]
   else
     return 1
   fi
@@ -542,12 +542,10 @@ disa_stig_checks() {
   return $failed
 }
 
-
 generate_scap_report() {
   echo "Generating SCAP-compliant security report..."
   local REPORT_FILE="/var/lib/hardn/openscap-report.xml"
   mkdir -p /var/lib/hardn
-
 
   local os_name
   if command -v lsb_release >/dev/null 2>&1; then

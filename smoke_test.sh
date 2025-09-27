@@ -13,7 +13,7 @@ if id hardn >/dev/null 2>&1; then
     USER_ID=$(id -u hardn)
     USER_GROUP=$(id -gn hardn)
     echo "[PASS] Non-root user 'hardn' exists (UID: $USER_ID, GID: $USER_GROUP)"
-    if [ "$USER_ID" -ge 1000 ] && [ "$USER_ID" -ne 0 ]; then
+    if [[ "$USER_ID" -ge 1000 ]] && [[ "$USER_ID" -ne 0 ]]; then
         echo "[PASS] User has non-system UID ($USER_ID)"
     else
         echo "[WARN] User has system UID range ($USER_ID)"
@@ -26,7 +26,7 @@ fi
 echo ""
 echo "=== CIS 5.4: Privilege Check ==="
 CURRENT_USER=$(id -u)
-if [ "$CURRENT_USER" = "0" ]; then
+if [[ "$CURRENT_USER" = "0" ]]; then
     echo "[WARN] Running as root (expected during initialization)"
 else
     echo "[PASS] Running as non-root user (UID: $CURRENT_USER)"
@@ -37,20 +37,20 @@ echo ""
 echo "=== CIS 5.1: AppArmor Security ==="
 if command -v apparmor_status >/dev/null 2>&1; then
     # First check if AppArmor is available in the kernel
-    if [ -d /sys/kernel/security/apparmor/ ] 2>/dev/null || [ -f /sys/module/apparmor/parameters/enabled ]; then
+    if [[ -d /sys/kernel/security/apparmor/ ]] 2>/dev/null || [[ -f /sys/module/apparmor/parameters/enabled ]]; then
         APPARMOR_STATUS=$(apparmor_status 2>/dev/null | grep -E "(profiles are loaded|profiles are in)" | head -1 || echo "unknown")
-        if [ "$APPARMOR_STATUS" != "unknown" ]; then
+        if [[ "$APPARMOR_STATUS" != "unknown" ]]; then
             echo "[PASS] AppArmor is enabled: $APPARMOR_STATUS"
             # Check if any profiles are enforcing
             ENFORCING_COUNT=$(apparmor_status 2>/dev/null | grep -c "enforce" 2>/dev/null || echo "0")
-            if [ "$ENFORCING_COUNT" -gt 0 ] 2>/dev/null; then
+            if [[ "$ENFORCING_COUNT" -gt 0 ]] 2>/dev/null; then
                 echo "[PASS] $ENFORCING_COUNT AppArmor profiles are in enforcing mode"
             else
                 echo "[WARN] No AppArmor profiles are in enforcing mode"
             fi
         else
             # Check if AppArmor service is running as alternative
-            if pgrep -f apparmor >/dev/null 2>&1 || [ -f /var/run/apparmor/apparmor ]; then
+            if pgrep -f apparmor >/dev/null 2>&1 || [[ -f /var/run/apparmor/apparmor ]]; then
                 echo "[PASS] AppArmor service is running"
             else
                 echo "[WARN] AppArmor status unknown - may not be fully active"
@@ -89,21 +89,21 @@ echo ""
 echo "=== Native Security Implementations ==="
 
 # Check file integrity baseline
-if [ -f /var/lib/hardn/file-integrity.db ]; then
+if [[ -f /var/lib/hardn/file-integrity.db ]]; then
     echo "[PASS] File integrity baseline exists"
 else
     echo "[INFO] File integrity baseline not yet created"
 fi
 
 # Check PAM password quality
-if [ -f /etc/pam.d/common-password ] && grep -q "minlen=8" /etc/pam.d/common-password; then
+if [[ -f /etc/pam.d/common-password ]] && grep -q "minlen=8" /etc/pam.d/common-password; then
     echo "[PASS] Password quality requirements configured"
 else
     echo "[INFO] Password quality not configured"
 fi
 
 # Check session timeout
-if [ -f /etc/profile ] && grep -q "TMOUT=900" /etc/profile; then
+if [[ -f /etc/profile ]] && grep -q "TMOUT=900" /etc/profile; then
     echo "[PASS] Session timeout configured"
 else
     echo "[INFO] Session timeout not configured"
@@ -112,7 +112,7 @@ fi
 # Check audit rules
 if command -v auditctl >/dev/null 2>&1; then
     AUDIT_RULES=$(auditctl -l 2>/dev/null | wc -l)
-    if [ "$AUDIT_RULES" -gt 0 ]; then
+    if [[ "$AUDIT_RULES" -gt 0 ]]; then
         echo "[PASS] Audit rules configured ($AUDIT_RULES rules)"
     else
         echo "[INFO] No audit rules configured"
@@ -122,7 +122,7 @@ else
 fi
 
 # Check SSH hardening
-if [ -f /etc/ssh/sshd_config ]; then
+if [[ -f /etc/ssh/sshd_config ]]; then
     if grep -q "PermitRootLogin no" /etc/ssh/sshd_config; then
         echo "[PASS] SSH root login disabled"
     else
@@ -133,7 +133,7 @@ else
 fi
 
 # Check core dump settings
-if [ -f /etc/security/limits.conf ] && grep -q "hard core 0" /etc/security/limits.conf; then
+if [[ -f /etc/security/limits.conf ]] && grep -q "hard core 0" /etc/security/limits.conf; then
     echo "[PASS] Core dumps disabled"
 else
     echo "[INFO] Core dump settings not configured"
@@ -226,7 +226,7 @@ fi
 # Check hardening script execution status
 echo ""
 echo "=== Security Hardening Status ==="
-if [ -f /opt/hardn-xdr/.hardening_complete ]; then
+if [[ -f /opt/hardn-xdr/.hardening_complete ]]; then
     echo "[PASS] Hardening script has been executed during build"
     echo "[PASS] Security configurations applied"
 else
@@ -234,10 +234,10 @@ else
 fi
 
 # Check for security configuration files
-if [ -f /etc/security/limits.conf ]; then
+if [[ -f /etc/security/limits.conf ]]; then
     echo "[PASS] Security limits configuration exists"
     LIMITS_COUNT=$(grep -c "hardn\|root" /etc/security/limits.conf || echo "0")
-    if [ "$LIMITS_COUNT" -gt 0 ]; then
+    if [[ "$LIMITS_COUNT" -gt 0 ]]; then
         echo "[PASS] User-specific security limits configured"
     fi
 fi
@@ -256,9 +256,9 @@ for check in "${SYSCTL_CHECKS[@]}"; do
     key=$(echo "$check" | cut -d'=' -f1)
     expected=$(echo "$check" | cut -d'=' -f2)
     current=$(sysctl -n "$key" 2>/dev/null || echo "unknown")
-    if [ "$current" = "$expected" ]; then
+    if [[ "$current" = "$expected" ]]; then
         echo "[PASS] $key = $current (secure)"
-    elif [ "$current" != "unknown" ]; then
+    elif [[ "$current" != "unknown" ]]; then
         echo "[WARN] $key = $current (expected: $expected)"
     else
         echo "[INFO] $key not available"
@@ -272,7 +272,7 @@ echo "=== Registry-Based Security Implementations ==="
 # Check for registry files
 REGISTRY_FILES="/source/tripwire-registry.sh /source/rkhunter-registry.sh /source/clamav-registry.sh /source/aide-registry.sh /source/openscap-registry.sh"
 for registry in $REGISTRY_FILES; do
-    if [ -f "$registry" ]; then
+    if [[ -f "$registry" ]]; then
         echo "[PASS] Registry file exists: $(basename "$registry")"
     else
         echo "[INFO] Registry file missing: $(basename "$registry")"
@@ -283,19 +283,19 @@ done
 echo ""
 echo "=== Security Databases ==="
 
-if [ -f /var/lib/hardn/tripwire.db ]; then
+if [[ -f /var/lib/hardn/tripwire.db ]]; then
     echo "[PASS] Tripwire-style integrity database exists"
 else
     echo "[INFO] Tripwire database not yet created"
 fi
 
-if [ -f /var/lib/hardn/aide/database.db ]; then
+if [[ -f /var/lib/hardn/aide/database.db ]]; then
     echo "[PASS] AIDE-style integrity database exists"
 else
     echo "[INFO] AIDE database not yet created"
 fi
 
-if [ -f /var/lib/hardn/openscap-report.xml ]; then
+if [[ -f /var/lib/hardn/openscap-report.xml ]]; then
     echo "[PASS] OpenSCAP compliance report exists"
 else
     echo "[INFO] OpenSCAP report not yet generated"
@@ -375,7 +375,7 @@ echo "=== Categorized Security Implementations ==="
 # Check for security categories
 SECURITY_CATEGORIES="/sources/security /sources/memory /sources/network /sources/privilege /sources/compliance"
 for category in $SECURITY_CATEGORIES; do
-    if [ -d "$category" ]; then
+    if [[ -d "$category" ]]; then
         script_count=$(find "$category" -name "*.sh" | wc -l)
         echo "[PASS] Category $(basename "$category") exists with $script_count scripts"
     else
@@ -387,10 +387,10 @@ done
 echo ""
 echo "=== Loading Registry Implementations ==="
 for category in /sources/*; do
-    if [ -d "$category" ]; then
+    if [[ -d "$category" ]]; then
         echo "Loading $(basename "$category") implementations..."
         for script in "$category"/*.sh; do
-            if [ -f "$script" ]; then
+            if [[ -f "$script" ]]; then
                 echo "  Sourcing $(basename "$script")..."
                 # shellcheck source="$script"
                 . "$script"

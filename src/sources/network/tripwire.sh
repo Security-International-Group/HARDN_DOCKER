@@ -11,7 +11,7 @@ create_file_integrity_db() {
 
     # Create integrity database
     for path in $CRITICAL_PATHS; do
-        if [ -d "$path" ]; then
+        if [[ -d "$path" ]]; then
             echo "Scanning $path..."
             find "$path" -type f -exec sha256sum {} \; 2>/dev/null >> /var/lib/hardn/tripwire.db
         fi
@@ -23,7 +23,7 @@ create_file_integrity_db() {
 verify_file_integrity() {
     echo "Verifying file integrity (Tripwire-style)..."
 
-    if [ ! -f /var/lib/hardn/tripwire.db ]; then
+    if [[ ! -f /var/lib/hardn/tripwire.db ]]; then
         echo "No integrity database found. Run create_file_integrity_db first."
         return 1
     fi
@@ -31,9 +31,9 @@ verify_file_integrity() {
     local violations=0
 
     while IFS=' ' read -r hash filepath; do
-        if [ -f "$filepath" ]; then
+        if [[ -f "$filepath" ]]; then
             current_hash=$(sha256sum "$filepath" 2>/dev/null | cut -d' ' -f1)
-            if [ "$hash" != "$current_hash" ]; then
+            if [[ "$hash" != "$current_hash" ]]; then
                 echo "INTEGRITY VIOLATION: $filepath"
                 violations=$((violations + 1))
             fi
@@ -43,7 +43,7 @@ verify_file_integrity() {
         fi
     done < /var/lib/hardn/tripwire.db
 
-    if [ $violations -eq 0 ]; then
+    if [[ $violations -eq 0 ]]; then
         echo "All files integrity verified successfully"
         return 0
     else
@@ -69,7 +69,7 @@ setup_tripwire_policy() {
     # Monitor critical configuration files
     CRITICAL_FILES="/etc/passwd /etc/shadow /etc/group /etc/sudoers /etc/ssh/sshd_config"
     for file in $CRITICAL_FILES; do
-        if [ -f "$file" ]; then
+        if [[ -f "$file" ]]; then
             echo "Monitoring $file for changes"
             # Add to monitoring list
             echo "$file" >> /var/lib/hardn/critical-files.list

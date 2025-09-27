@@ -50,7 +50,7 @@ detect_rootkits() {
     # Check for known rootkit files
     echo "Checking for known rootkit files..."
     for file in $KNOWN_ROOTKIT_FILES; do
-        if [ -e "$file" ]; then
+        if [[ -e "$file" ]]; then
             echo "ROOTKIT DETECTED: $file"
             findings=$((findings + 1))
         fi
@@ -68,9 +68,9 @@ detect_rootkits() {
     # Check for hidden files in common directories
     echo "Checking for hidden files in system directories..."
     for dir in /bin /sbin /usr/bin /usr/sbin /etc; do
-        if [ -d "$dir" ]; then
+        if [[ -d "$dir" ]]; then
             hidden_files=$(find "$dir" -name ".*" -type f 2>/dev/null | wc -l)
-            if [ "$hidden_files" -gt 0 ]; then
+            if [[ "$hidden_files" -gt 0 ]]; then
                 echo "Hidden files found in $dir: $hidden_files files"
                 findings=$((findings + 1))
             fi
@@ -80,7 +80,7 @@ detect_rootkits() {
     # Check for unusual file permissions
     echo "Checking for unusual file permissions..."
     unusual_perms=$(find /bin /sbin /usr/bin /usr/sbin -perm /6000 2>/dev/null | wc -l)
-    if [ "$unusual_perms" -gt 10 ]; then
+    if [[ "$unusual_perms" -gt 10 ]]; then
         echo "Unusual SUID/SGID files found: $unusual_perms files"
         findings=$((findings + 1))
     fi
@@ -88,7 +88,7 @@ detect_rootkits() {
     # Check for modified system binaries
     echo "Checking system binary integrity..."
     for binary in /bin/ls /bin/ps /bin/netstat /usr/bin/top; do
-        if [ -f "$binary" ]; then
+        if [[ -f "$binary" ]]; then
             # Check if binary is in expected location
             if ! which "$(basename "$binary")" >/dev/null 2>&1; then
                 echo "POTENTIAL ROOTKIT: $binary not in PATH"
@@ -100,7 +100,7 @@ detect_rootkits() {
     # Check for rootkit signatures in system files
     echo "Checking for rootkit signatures..."
     for sig in $RKHUNTER_ROOTKIT_SIGNATURES; do
-        if [ -f "$sig" ]; then
+        if [[ -f "$sig" ]]; then
             # Check if file contains suspicious content
             if grep -q "rootkit\|backdoor\|malware" "$sig" 2>/dev/null; then
                 echo "SUSPICIOUS CONTENT: $sig"
@@ -109,7 +109,7 @@ detect_rootkits() {
         fi
     done
 
-    if [ $findings -eq 0 ]; then
+    if [[ $findings -eq 0 ]]; then
         echo "No rootkit indicators found"
         return 0
     else

@@ -9,7 +9,7 @@ audit_suid_sgid_files() {
     # Find all SUID/SGID files
     suid_files=$(find / -type f -perm /6000 2>/dev/null)
 
-    if [ -n "$suid_files" ]; then
+    if [[ "$suid_files" ]]; then
         echo "Found SUID/SGID files:"
         echo "$suid_files" | while read -r file; do
             perms=$(stat -c "%a" "$file" 2>/dev/null)
@@ -28,7 +28,7 @@ remove_dangerous_suid() {
     DANGEROUS_SUID="/usr/bin/su /bin/su /usr/bin/sudo /bin/sudo"
 
     for file in $DANGEROUS_SUID; do
-        if [ -f "$file" ] && [ -u "$file" ]; then
+        if [[ -f "$file" ]] && [[ -u "$file" ]]; then
             echo "Removing SUID bit from $file"
             chmod u-s "$file" 2>/dev/null || true
         fi
@@ -57,7 +57,7 @@ configure_pam_security() {
     fi
 
     # Configure password quality - ensure pam_pwquality is available
-    if [ -f /etc/pam.d/common-password ]; then
+    if [[ -f /etc/pam.d/common-password ]]; then
         # Check if pam_pwquality is already configured with minlen=8
         if ! grep -q "pam_pwquality.so.*minlen=8" /etc/pam.d/common-password; then
             # Add pam_pwquality configuration before pam_unix
@@ -72,14 +72,14 @@ configure_pam_security() {
     fi
 
     # Configure account locking
-    if [ -f /etc/pam.d/common-auth ]; then
+    if [[ -f /etc/pam.d/common-auth ]]; then
         if ! grep -q "pam_tally2.so" /etc/pam.d/common-auth; then
             echo "auth required pam_tally2.so deny=5 unlock_time=900" >> /etc/pam.d/common-auth 2>/dev/null || true
         fi
     fi
 
     # Configure session limits
-    if [ -f /etc/pam.d/common-session ]; then
+    if [[ -f /etc/pam.d/common-session ]]; then
         if ! grep -q "pam_limits.so" /etc/pam.d/common-session; then
             echo "session required pam_limits.so" >> /etc/pam.d/common-session 2>/dev/null || true
         fi
@@ -96,7 +96,7 @@ configure_user_access() {
     useradd -D -f 30 2>/dev/null || true
 
     # Set password aging
-    if [ -f /etc/login.defs ]; then
+    if [[ -f /etc/login.defs ]]; then
         sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 90/' /etc/login.defs 2>/dev/null || true
         sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS 1/' /etc/login.defs 2>/dev/null || true
         sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE 7/' /etc/login.defs 2>/dev/null || true
@@ -133,7 +133,7 @@ configure_root_access() {
     echo "Configuring root access controls..."
 
     # Secure root home directory
-    if [ -d /root ]; then
+    if [[ -d /root ]]; then
         chmod 700 /root 2>/dev/null || true
         # Skip chown on read-only filesystem
         if ! mount | grep -q " / ro," 2>/dev/null; then
@@ -142,7 +142,7 @@ configure_root_access() {
     fi
 
     # Configure secure root shell
-    if [ -f /etc/passwd ]; then
+    if [[ -f /etc/passwd ]]; then
         sed -i 's|^root:.*$|root:x:0:0:root:/root:/bin/bash|' /etc/passwd 2>/dev/null || true
     fi
 
@@ -159,7 +159,7 @@ configure_wheel_group() {
     fi
 
     # Configure sudo to require wheel group
-    if [ -f /etc/sudoers ]; then
+    if [[ -f /etc/sudoers ]]; then
         echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers 2>/dev/null || true
     fi
 
@@ -171,7 +171,7 @@ configure_session_security() {
     echo "Configuring session security..."
 
     # Set session timeout
-    if [ -f /etc/profile ]; then
+    if [[ -f /etc/profile ]]; then
         echo "TMOUT=900" >> /etc/profile
         echo "readonly TMOUT" >> /etc/profile
         echo "export TMOUT" >> /etc/profile

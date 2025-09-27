@@ -15,14 +15,14 @@ configure_selinux() {
     # Check SELinux status
     selinux_status=$(sestatus | grep "SELinux status" | awk '{print $3}' 2>/dev/null || echo "disabled")
 
-    if [ "$selinux_status" = "disabled" ]; then
+    if [[ "$selinux_status" = "disabled" ]]; then
         echo "SELinux is disabled, attempting to enable..."
         # Try to enable SELinux (may require reboot)
-        if [ -f /etc/selinux/config ]; then
+        if [[ -f /etc/selinux/config ]]; then
             sed -i 's/SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
             echo "SELinux set to enforcing mode in config"
         fi
-    elif [ "$selinux_status" = "permissive" ]; then
+    elif [[ "$selinux_status" = "permissive" ]]; then
         echo "SELinux is in permissive mode, setting to enforcing..."
         setenforce 1 2>/dev/null || echo "Failed to set enforcing mode"
     else

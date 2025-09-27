@@ -43,9 +43,6 @@ else
   FAIL "deb.hardn.sh missing"
 fi
 
-
-
-
 if RUN ': > /tmp/.hc.$$ && rm -f /tmp/.hc.$$' >/dev/null; then
   GOOD "tmp usable"
 else
@@ -75,7 +72,6 @@ else
   WARN "/etc/login.defs not found"
 fi
 
-
 if [[ -f /etc/pam.d/common-password ]]; then
   if grep -Eq '(^|\s)pam_pwquality\.so(\s|$)' /etc/pam.d/common-password \
      && grep -Eq 'minlen=([8-9]|[1-9][0-9]+)' /etc/pam.d/common-password; then
@@ -87,13 +83,11 @@ else
   WARN "PAM common-password not found"
 fi
 
-
 if [[ -f /var/lib/hardn/file-integrity.db ]]; then
   GOOD "file-integrity baseline exists"
 else
   WARN "file-integrity baseline missing (first run?)"
 fi
-
 
 if [[ -x /usr/local/bin/smoke_test.sh ]]; then
   if RUN '/usr/local/bin/smoke_test.sh --health 2>/dev/null || true' >/dev/null; then
@@ -103,21 +97,15 @@ if [[ -x /usr/local/bin/smoke_test.sh ]]; then
   fi
 fi
 
-
 if getent passwd hardn >/dev/null 2>&1; then
   GOOD "user 'hardn' present"
 else
   FAIL "user 'hardn' missing"
 fi
 
-
-
-
 printf '\nSummary: ok=%d warn=%d fail=%d\n' "$ok" "$warn" "$fail"
 
-if (( fail > 0 )); then
-  exit 1
-fi
+if (( fail > 0 )); then exit 1; fi
 
 if (( STRICT == 1 && warn > 0 )); then
   NOTE "STRICT=1: warnings escalate to failure"

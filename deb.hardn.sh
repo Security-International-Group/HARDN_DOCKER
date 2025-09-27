@@ -15,14 +15,14 @@ if [[ "${1:-}" == "-uninstall" ]]; then
   echo "Uninstalling HARDN-XDR to default configurations..."
 
   # Remove advanced sysctl hardening configuration.
-  if [ -f /etc/sysctl.d/99-hardening.conf ]; then
+  if [[ -f /etc/sysctl.d/99-hardening.conf ]]; then
     rm /etc/sysctl.d/99-hardening.conf
     echo "Removed /etc/sysctl.d/99-hardening.conf"
     sysctl --system 2>/dev/null || echo "Warning: Failed to reload sysctl settings."
   fi
 
   # Remove network protocol blacklisting.
-  if [ -f /etc/modprobe.d/disable-net-protocols.conf ]; then
+  if [[ -f /etc/modprobe.d/disable-net-protocols.conf ]]; then
     rm /etc/modprobe.d/disable-net-protocols.conf
     echo "Removed /etc/modprobe.d/disable-net-protocols.conf"
   fi
@@ -51,7 +51,7 @@ export HARDENING_PHASE=true
 # -----------------------------------------------------------------------------
 fix_docker_socket() {
     # Only operate if socket exists
-    if [ ! -S /var/run/docker.sock ]; then
+    if [[ ! -S /var/run/docker.sock ]]; then
         echo "[!] /var/run/docker.sock not present; skipping socket remediation"
         return 0
     fi
@@ -84,7 +84,7 @@ install_auditd_rules() {
     RULES_PATH="/etc/audit/rules.d/99-docker.rules"
     echo "[+] Installing auditd rules to ${RULES_PATH}"
 
-    if [ ! -d /etc/audit ] && [ ! -d /etc/audit/rules.d ]; then
+    if [[ ! -d /etc/audit ]] && [[ ! -d /etc/audit/rules.d ]]; then
         echo "    - audit subsystem not present on this host; install auditd and re-run this step"
         return 0
     fi
@@ -129,17 +129,17 @@ configure_docker_daemon() {
     mkdir -p /etc/docker || true
 
     # Backup existing file if present
-    if [ -f "${DAEMON_JSON}" ]; then
+    if [[ -f "${DAEMON_JSON}" ]]; then
         echo "    - backing up existing ${DAEMON_JSON} to ${BACKUP}"
         cp -a "${DAEMON_JSON}" "${BACKUP}" || echo "    - warning: failed to backup existing daemon.json"
     fi
 
     # Write minimal desired settings; preserve other keys by merging if jq is available
-    if command -v jq >/dev/null 2>&1 && [ -f "${DAEMON_JSON}" ]; then
+    if command -v jq >/dev/null 2>&1 && [[ -f "${DAEMON_JSON}" ]]; then
         # Merge existing JSON with our settings
         tmp=$(mktemp)
         jq '. + {"live-restore": true, "userland-proxy": false, "userns-remap": ."userns-remap" // "default"}' "${DAEMON_JSON}" > "${tmp}" 2>/dev/null || true
-        if [ -s "${tmp}" ]; then
+        if [[ -s "${tmp}" ]]; then
             mv "${tmp}" "${DAEMON_JSON}"
         else
             echo "    - jq merge failed; overwriting with defaults"
@@ -229,12 +229,12 @@ if command -v apparmor_status >/dev/null 2>&1; then
     /etc/init.d/apparmor start 2>/dev/null || true
 
     # Load AppArmor profiles
-    if [ -d /etc/apparmor.d/ ]; then
+    if [[ -d /etc/apparmor.d/ ]]; then
         apparmor_parser -r /etc/apparmor.d/ 2>/dev/null || true
     fi
 
     # Enable AppArmor in the kernel if possible
-    if [ -f /sys/module/apparmor/parameters/enabled ]; then
+    if [[ -f /sys/module/apparmor/parameters/enabled ]]; then
         echo "Y" > /sys/module/apparmor/parameters/enabled 2>/dev/null || true
     fi
 fi
@@ -270,7 +270,7 @@ echo "[+] Debian packages installation complete. Now executing /sources scripts.
 SCRIPT_BASE="/sources"
 
 echo "[+] Executing compliance hardening scripts..."
-if [ -f "$SCRIPT_BASE/compliance/openscap-registry.sh" ]; then
+if [[ -f "$SCRIPT_BASE/compliance/openscap-registry.sh" ]]; then
     echo "  - Running OpenSCAP compliance checks..."
     if bash "$SCRIPT_BASE/compliance/openscap-registry.sh"; then
         echo "  - OpenSCAP completed successfully"
@@ -281,7 +281,7 @@ else
     echo "  - Warning: OpenSCAP script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/compliance/cron.sh" ]; then
+if [[ -f "$SCRIPT_BASE/compliance/cron.sh" ]]; then
     echo "  - Setting up automated compliance updates..."
     if bash "$SCRIPT_BASE/compliance/cron.sh"; then
         echo "  - Cron setup completed successfully"
@@ -293,7 +293,7 @@ else
 fi
 
 echo "[+] Executing memory protection scripts..."
-if [ -f "$SCRIPT_BASE/memory/clamav.sh" ]; then
+if [[ -f "$SCRIPT_BASE/memory/clamav.sh" ]]; then
     echo "  - Running ClamAV configuration..."
     if bash "$SCRIPT_BASE/memory/clamav.sh"; then
         echo "  - ClamAV completed successfully"
@@ -304,7 +304,7 @@ else
     echo "  - Warning: ClamAV script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/memory/part.sh" ]; then
+if [[ -f "$SCRIPT_BASE/memory/part.sh" ]]; then
     echo "  - Running Docker partition and memory security..."
     if bash "$SCRIPT_BASE/memory/part.sh"; then
         echo "  - Partition and memory security completed successfully"
@@ -315,7 +315,7 @@ else
     echo "  - Warning: Partition script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/memory/protection.sh" ]; then
+if [[ -f "$SCRIPT_BASE/memory/protection.sh" ]]; then
     echo "  - Running memory protection setup..."
     # Source the protection script to load functions
     . "$SCRIPT_BASE/memory/protection.sh"
@@ -342,7 +342,7 @@ else
 fi
 
 echo "[+] Executing network security scripts..."
-if [ -f "$SCRIPT_BASE/network/aide.sh" ]; then
+if [[ -f "$SCRIPT_BASE/network/aide.sh" ]]; then
     echo "  - Running AIDE integrity monitoring..."
     source "$SCRIPT_BASE/network/aide.sh"
     if command -v initialize_minimal_aide >/dev/null 2>&1; then
@@ -358,7 +358,7 @@ else
     echo "  - Warning: AIDE script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/security/security.sh" ]; then
+if [[ -f "$SCRIPT_BASE/security/security.sh" ]]; then
     echo "  - Running security configuration..."
     if bash "$SCRIPT_BASE/security/security.sh"; then
         echo "  - Network security completed successfully"
@@ -369,7 +369,7 @@ else
     echo "  - Warning: Network security script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/security/apparmor.sh" ]; then
+if [[ -f "$SCRIPT_BASE/security/apparmor.sh" ]]; then
     echo "  - Running AppArmor configuration..."
     if bash "$SCRIPT_BASE/security/apparmor.sh"; then
         echo "  - AppArmor configuration completed successfully"
@@ -380,7 +380,7 @@ else
     echo "  - Warning: AppArmor script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/security/selinux.sh" ]; then
+if [[ -f "$SCRIPT_BASE/security/selinux.sh" ]]; then
     echo "  - Running SELinux configuration..."
     if bash "$SCRIPT_BASE/security/selinux.sh"; then
         echo "  - SELinux configuration completed successfully"
@@ -391,7 +391,7 @@ else
     echo "  - Warning: SELinux script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/security/docker-daemon.sh" ]; then
+if [[ -f "$SCRIPT_BASE/security/docker-daemon.sh" ]]; then
     echo "  - Running Docker daemon configuration..."
     if bash "$SCRIPT_BASE/security/docker-daemon.sh"; then
         echo "  - Docker daemon configuration completed successfully"
@@ -402,7 +402,7 @@ else
     echo "  - Warning: Docker daemon script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/security/image-security.sh" ]; then
+if [[ -f "$SCRIPT_BASE/security/image-security.sh" ]]; then
     echo "  - Running container image security configuration..."
     if bash "$SCRIPT_BASE/security/image-security.sh"; then
         echo "  - Container image security configuration completed successfully"
@@ -413,7 +413,7 @@ else
     echo "  - Warning: Container image security script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/security/host-config.sh" ]; then
+if [[ -f "$SCRIPT_BASE/security/host-config.sh" ]]; then
     echo "  - Running host configuration security..."
     if bash "$SCRIPT_BASE/security/host-config.sh"; then
         echo "  - Host configuration security completed successfully"
@@ -424,7 +424,7 @@ else
     echo "  - Warning: Host configuration script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/network/tripwire.sh" ]; then
+if [[ -f "$SCRIPT_BASE/network/tripwire.sh" ]]; then
     echo "  - Running Tripwire configuration..."
     if bash "$SCRIPT_BASE/network/tripwire.sh"; then
         echo "  - Tripwire completed successfully"
@@ -436,7 +436,7 @@ else
 fi
 
 echo "[+] Executing privilege management scripts..."
-if [ -f "$SCRIPT_BASE/privilege/access.sh" ]; then
+if [[ -f "$SCRIPT_BASE/privilege/access.sh" ]]; then
     echo "  - Running privilege access controls..."
     # Source the access script to load functions
     . "$SCRIPT_BASE/privilege/access.sh"
@@ -462,7 +462,7 @@ else
     echo "  - Warning: Privilege access script not found"
 fi
 
-if [ -f "$SCRIPT_BASE/privilege/rkhunter.sh" ]; then
+if [[ -f "$SCRIPT_BASE/privilege/rkhunter.sh" ]]; then
     echo "  - Running rkhunter configuration..."
     if bash "$SCRIPT_BASE/privilege/rkhunter.sh"; then
         echo "  - rkhunter completed successfully"
@@ -474,7 +474,7 @@ else
 fi
 
 echo "[+] Executing security integrity scripts..."
-if [ -f "$SCRIPT_BASE/security/integrity.sh" ]; then
+if [[ -f "$SCRIPT_BASE/security/integrity.sh" ]]; then
     echo "  - Running security integrity checks..."
     if HARDENING_PHASE=true bash "$SCRIPT_BASE/security/integrity.sh"; then
         echo "  - Security integrity completed successfully"
@@ -521,7 +521,7 @@ echo "---------------------------------------------"
 # DISA STIG Compliance Execution
 ###############################################################################
 
-if [ "$DOCKER_STIG_ENABLED" = "true" ] || [ "$KUBERNETES_STIG_ENABLED" = "true" ]; then
+if [[ "$DOCKER_STIG_ENABLED" = "true" ]] || [[ "$KUBERNETES_STIG_ENABLED" = "true" ]]; then
     echo "[+] Executing DISA STIG compliance checks..."
 
     # STIG Category-based execution
@@ -541,7 +541,7 @@ if [ "$DOCKER_STIG_ENABLED" = "true" ] || [ "$KUBERNETES_STIG_ENABLED" = "true" 
     esac
 
     # Docker STIG checks
-    if [ "$DOCKER_STIG_ENABLED" = "true" ]; then
+    if [[ "$DOCKER_STIG_ENABLED" = "true" ]]; then
         echo "  - Docker STIG requirements:"
         echo "    * Communication channels encrypted"
         echo "    * Resource limits enforced (CPU, memory, storage)"
@@ -550,7 +550,7 @@ if [ "$DOCKER_STIG_ENABLED" = "true" ] || [ "$KUBERNETES_STIG_ENABLED" = "true" 
     fi
 
     # Kubernetes STIG checks
-    if [ "$KUBERNETES_STIG_ENABLED" = "true" ]; then
+    if [[ "$KUBERNETES_STIG_ENABLED" = "true" ]]; then
         echo "  - Kubernetes STIG requirements:"
         echo "    * Pod Security Standards enforced"
         echo "    * Network policies configured"
@@ -559,7 +559,7 @@ if [ "$DOCKER_STIG_ENABLED" = "true" ] || [ "$KUBERNETES_STIG_ENABLED" = "true" 
     fi
 
     # Sysdig Secure integration
-    if [ "$SYSDIG_SECURE_ENABLED" = "true" ]; then
+    if [[ "$SYSDIG_SECURE_ENABLED" = "true" ]]; then
         echo "  - Sysdig Secure STIG integration:"
         echo "    * Automated compliance assessment"
         echo "    * Continuous monitoring enabled"
@@ -580,7 +580,7 @@ echo "Review the output above for any warnings or errors."
 ###############################################################################
 
 echo "[+] Creating file integrity baseline..."
-if [ -f "/sources/security/integrity.sh" ] && [ -f "/sources/memory/protection.sh" ]; then
+if [[ -f "/sources/security/integrity.sh" ]] && [[ -f "/sources/memory/protection.sh" ]]; then
     # Source both integrity and protection scripts to load functions
     . "/sources/security/integrity.sh"
     . "/sources/memory/protection.sh"

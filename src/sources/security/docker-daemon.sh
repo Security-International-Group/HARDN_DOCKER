@@ -493,7 +493,7 @@ verify_docker_config() {
     echo "Verifying Docker daemon configuration..."
 
     # Check if daemon.json exists
-    if [ -f /etc/docker/daemon.json ]; then
+    if [[ -f /etc/docker/daemon.json ]]; then
         echo "✓ Docker daemon.json exists"
     else
         echo "✗ Docker daemon.json missing"
@@ -501,21 +501,21 @@ verify_docker_config() {
     fi
 
     # Check TLS certificates
-    if [ -f /etc/docker/ca.pem ] && [ -f /etc/docker/server-cert.pem ] && [ -f /etc/docker/server-key.pem ]; then
+    if [[ -f /etc/docker/ca.pem ]] && [[ -f /etc/docker/server-cert.pem ]] && [[ -f /etc/docker/server-key.pem ]]; then
         echo "✓ Docker TLS certificates exist"
     else
         echo "✗ Docker TLS certificates missing"
     fi
 
     # Check seccomp profile
-    if [ -f /etc/docker/seccomp.json ]; then
+    if [[ -f /etc/docker/seccomp.json ]]; then
         echo "✓ Docker seccomp profile exists"
     else
         echo "✗ Docker seccomp profile missing"
     fi
 
     # Check audit rules
-    if [ -f /etc/audit/rules.d/99-docker.rules ]; then
+    if [[ -f /etc/audit/rules.d/99-docker.rules ]]; then
         echo "✓ Docker audit rules exist"
     else
         echo "✗ Docker audit rules missing"
