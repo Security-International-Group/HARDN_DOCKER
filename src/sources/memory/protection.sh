@@ -67,12 +67,12 @@ setup_buffer_overflow_protection() {
     # Check if filesystem is read-only before trying to modify /proc
     if ! mount | grep -q " / ro," 2>/dev/null; then
         # Enable ExecShield (if available)
-        if [ -f /proc/sys/kernel/exec-shield ]; then
+        if [[ -f /proc/sys/kernel/exec-shield ]]; then
             echo "1" > /proc/sys/kernel/exec-shield 2>/dev/null || true
         fi
 
         # Configure stack protection
-        if [ -f /proc/sys/kernel/randomize_va_space ]; then
+        if [[ -f /proc/sys/kernel/randomize_va_space ]]; then
             echo "2" > /proc/sys/kernel/randomize_va_space 2>/dev/null || true
         fi
 
@@ -97,7 +97,7 @@ create_file_integrity_baseline() {
 
     # Create baseline using native tools
     for path in $CRITICAL_PATHS; do
-        if [ -d "$path" ]; then
+        if [[ -d "$path" ]]; then
             echo "Baselining $path..."
             find "$path" -type f -exec stat -c "%n|%s|%Y|%a|%u|%g|%i" {} \; >> /var/lib/hardn/integrity.baseline 2>/dev/null
         fi
@@ -126,7 +126,7 @@ echo "Memory Usage: ${MEMORY_USAGE}%"
 echo "Swap Usage: ${SWAP_USAGE}%"
 
 # Alert if memory usage is high
-if [ "$MEMORY_USAGE" -gt 90 ]; then
+if [[ "$MEMORY_USAGE" -gt 90 ]]; then
     echo "WARNING: High memory usage detected!"
 fi
 EOF
@@ -197,7 +197,7 @@ generate_docker_tls() {
     CLIENT_CERT="${DEST_DIR}/client-cert.pem"
 
     # If files exist and not forced, skip
-    if [ $FORCE -ne 1 ] && [ -f "${CA_CERT}" ] && [ -f "${SERVER_CERT}" ] && [ -f "${CLIENT_CERT}" ]; then
+    if [[ $FORCE -ne 1 ]] && [[ -f "${CA_CERT}" ]] && [[ -f "${SERVER_CERT}" ]] && [[ -f "${CLIENT_CERT}" ]]; then
         echo "[+] Docker TLS certs already present in ${DEST_DIR}; skipping (set FORCE_DOCKER_TLS=1 to overwrite)"
         return 0
     fi
@@ -275,7 +275,7 @@ configure_no_new_privileges() {
     mkdir -p /etc/docker || true
 
     # Backup existing file if present
-    if [ -f "${DAEMON_JSON}" ]; then
+    if [[ -f "${DAEMON_JSON}" ]]; then
         echo "    - backing up existing ${DAEMON_JSON} to ${BACKUP}"
         cp -a "${DAEMON_JSON}" "${BACKUP}" || echo "    - warning: failed to backup existing daemon.json"
     fi
@@ -285,7 +285,7 @@ configure_no_new_privileges() {
         # Merge existing JSON with no-new-privileges
         tmp=$(mktemp)
         jq '. + {"no-new-privileges": true}' "${DAEMON_JSON}" > "${tmp}" 2>/dev/null || true
-        if [ -s "${tmp}" ]; then
+        if [[ -s "${tmp}" ]]; then
             mv "${tmp}" "${DAEMON_JSON}"
         else
             echo "    - jq merge failed; overwriting with defaults"
@@ -310,7 +310,7 @@ EOF
 }
 
 # Main execution - only run when script is executed directly, not when sourced
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ -n "${0}" ]] && [[ "${0}" != "bash" ]] && [[ "${0}" != "sh" ]]; then
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ "${0}" ]] && [[ "${0}" != "bash" ]] && [[ "${0}" != "sh" ]]; then
     echo "HARDN-XDR Memory Protection Setup"
     echo "================================="
 

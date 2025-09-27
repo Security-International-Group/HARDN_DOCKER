@@ -53,7 +53,6 @@ scan_for_malware() {
       [[ "$cnt" -gt 0 ]] && echo "Found $cnt files with extension $ext in $path"
     done
 
-
     while IFS= read -r -d '' file; do
       scanned_files=$((scanned_files + 1))
 
@@ -124,13 +123,9 @@ update_signatures() {
   echo "Last update: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" > /var/lib/hardn/clamav-last-update
 }
 
-
-
 setup_clamav_config() { echo "Note: setup_clamav_config -> using setup_file_monitoring"; setup_file_monitoring; }
 scan_system_files()   { scan_for_malware; }
 monitor_file_changes(){ setup_file_monitoring; }
-
-
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   echo "HARDN-XDR ClamAV Registry Setup"

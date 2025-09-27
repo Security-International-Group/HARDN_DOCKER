@@ -7,7 +7,7 @@ check_docker_partition() {
     echo "Checking Docker data partition..."
 
     # Check if /var/lib/docker exists
-    if [ ! -d /var/lib/docker ]; then
+    if [[ ! -d /var/lib/docker ]]; then
         echo "Docker data directory /var/lib/docker does not exist yet"
         return 0
     fi
@@ -17,7 +17,7 @@ check_docker_partition() {
     root_fs=$(df -T / 2>/dev/null | tail -1 | awk '{print $2}')
 
     # Check if Docker data is on separate filesystem
-    if [ "$docker_fs" != "$root_fs" ]; then
+    if [[ "$docker_fs" != "$root_fs" ]]; then
         echo "✓ Docker data is on separate partition (filesystem: $docker_fs)"
     else
         echo "⚠ WARN: Docker data (/var/lib/docker) is on the same partition as root filesystem"
@@ -61,7 +61,7 @@ create_docker_partition() {
     echo ""
 
     # Create backup if Docker data exists
-    if [ -d /var/lib/docker ] && [ "$(ls -A /var/lib/docker)" ]; then
+    if [[ -d /var/lib/docker ]] && [[ "$(ls -A /var/lib/docker)" ]]; then
         echo "Backing up existing Docker data..."
         mkdir -p /var/lib/docker.bak
         cp -r /var/lib/docker/* /var/lib/docker.bak/ 2>/dev/null || true
@@ -85,7 +85,7 @@ check_memory_limits() {
 
     # Check running containers for memory limits
     running_containers=$(docker ps --format "table {{.Names}}\t{{.Status}}" 2>/dev/null | wc -l)
-    if [ "$running_containers" -gt 1 ]; then
+    if [[ "$running_containers" -gt 1 ]]; then
         echo "Running containers found. Check individual container memory limits with:"
         echo "docker inspect <container_name> | grep -A 5 Memory"
     fi

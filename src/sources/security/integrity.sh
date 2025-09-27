@@ -11,7 +11,7 @@ create_integrity_baseline() {
 
     # Create baseline using native tools
     for path in $CRITICAL_PATHS; do
-        if [ -d "$path" ]; then
+        if [[ -d "$path" ]]; then
             echo "Baselining $path..."
             find "$path" -type f -exec stat -c "%n|%s|%Y|%a|%u|%g|%i" {} \; >> /var/lib/hardn/integrity.baseline 2>/dev/null
         fi
@@ -23,7 +23,7 @@ create_integrity_baseline() {
 verify_integrity() {
     echo "Verifying file integrity..."
 
-    if [ ! -f /var/lib/hardn/integrity.baseline ]; then
+    if [[ ! -f /var/lib/hardn/integrity.baseline ]]; then
         echo "No integrity baseline found"
         return 1
     fi
@@ -31,9 +31,9 @@ verify_integrity() {
     local violations=0
 
     while IFS='|' read -r filepath size mtime perms uid gid inode; do
-        if [ -e "$filepath" ]; then
+        if [[ -e "$filepath" ]]; then
             current=$(stat -c "%s|%Y|%a|%u|%g|$inode" "$filepath" 2>/dev/null)
-            if [ "$current" != "$size|$mtime|$perms|$uid|$gid|$inode" ]; then
+            if [[ "$current" != "$size|$mtime|$perms|$uid|$gid|$inode" ]]; then
                 echo "INTEGRITY VIOLATION: $filepath"
                 violations=$((violations + 1))
             fi
@@ -43,7 +43,7 @@ verify_integrity() {
         fi
     done < /var/lib/hardn/integrity.baseline
 
-    if [ $violations -eq 0 ]; then
+    if [[ $violations -eq 0 ]]; then
         echo "All files integrity verified"
         return 0
     else
@@ -81,10 +81,10 @@ run_cis_checks() {
     # Note: During hardening phase, root is required for system configuration
     # This check is more relevant for runtime execution
     echo "DEBUG: HARDENING_PHASE='$HARDENING_PHASE'"
-    if [ -n "$HARDENING_PHASE" ] && [ "$HARDENING_PHASE" = "true" ]; then
+    if [[ "$HARDENING_PHASE" ]] && [[ "$HARDENING_PHASE" = "true" ]]; then
         echo "✓ CIS 5.4: Hardening phase (root required for configuration)"
         passed=$((passed + 1))
-    elif [ "$(id -u)" != "0" ]; then
+    elif [[ "$(id -u)" != "0" ]]; then
         echo "✓ CIS 5.4: Non-privileged execution"
         passed=$((passed + 1))
     else
@@ -104,7 +104,7 @@ run_cis_checks() {
 
     # Calculate compliance rate
     total=$((passed + failed))
-    if [ "$total" -gt 0 ]; then
+    if [[ "$total" -gt 0 ]]; then
         rate=$((passed * 100 / total))
         printf "│ Total Checks: %-42d │\n" "$total"
         printf "│ Passed: %-46d │\n" "$passed"
@@ -117,10 +117,10 @@ run_cis_checks() {
         printf "│ Compliance Rate: %-37s │\n" "N/A"
     fi
 
-    if [ "$failed" -gt 0 ]; then
+    if [[ "$failed" -gt 0 ]]; then
         echo "├─────────────────────────────────────────────────────────────┤"
         echo "│ CRITICAL ISSUES REQUIRING ATTENTION:                        │"
-        if [ "$(id -u)" = "0" ] && [ -z "$HARDENING_PHASE" ]; then
+        if [[ "$(id -u)" = "0" ]] && [[ -z "$HARDENING_PHASE" ]]; then
             echo "│ • CIS 5.4: Container running as root (non-compliant)    │"
             echo "│   → Use non-root user for runtime execution             │"
         fi
@@ -176,7 +176,7 @@ run_stig_checks() {
 
     # STIG: No empty passwords
     empty_passwords=$(awk -F: '($2 == "") {print $1}' /etc/shadow 2>/dev/null | wc -l)
-    if [ "$empty_passwords" -eq 0 ]; then
+    if [[ "$empty_passwords" -eq 0 ]]; then
         echo "✓ STIG: No empty passwords"
         passed=$((passed + 1))
     else
@@ -186,7 +186,7 @@ run_stig_checks() {
 
     # STIG: Root only UID 0
     uid_zero=$(awk -F: '($3 == 0) {print $1}' /etc/passwd | wc -l)
-    if [ "$uid_zero" -eq 1 ]; then
+    if [[ "$uid_zero" -eq 1 ]]; then
         echo "✓ STIG: Only root has UID 0"
         passed=$((passed + 1))
     else
@@ -197,7 +197,7 @@ run_stig_checks() {
     # STIG: TLS Certificate Ownership (Docker/Kubernetes requirement)
     tls_certs=$(find /etc/ssl/certs -name "*.pem" -o -name "*.crt" 2>/dev/null | wc -l)
     tls_root_owned=$(find /etc/ssl/certs -name "*.pem" -o -name "*.crt" -user root -group root 2>/dev/null | wc -l)
-    if [ "$tls_certs" -eq "$tls_root_owned" ] && [ "$tls_certs" -gt 0 ]; then
+    if [[ "$tls_certs" -eq "$tls_root_owned" ]] && [[ "$tls_certs" -gt 0 ]]; then
         echo "✓ STIG: TLS certificates owned by root:root"
         passed=$((passed + 1))
     else
@@ -206,7 +206,7 @@ run_stig_checks() {
     fi
 
     # STIG: Resource Limits Configuration
-    if [ -f /etc/security/limits.d/stig-hardening.conf ]; then
+    if [[ -f /etc/security/limits.d/stig-hardening.conf ]]; then
         echo "✓ STIG: Resource limits configured"
         passed=$((passed + 1))
     else
@@ -218,21 +218,21 @@ run_stig_checks() {
     encryption_configured=false
 
     # Check OpenSSL configuration for secure settings
-    if [ -f /etc/ssl/openssl.cnf ] && grep -q "MinProtocol.*TLS" /etc/ssl/openssl.cnf 2>/dev/null; then
+    if [[ -f /etc/ssl/openssl.cnf ]] && grep -q "MinProtocol.*TLS" /etc/ssl/openssl.cnf 2>/dev/null; then
         encryption_configured=true
     fi
 
     # Check SSH configuration for secure settings
-    if [ -f /etc/ssh/sshd_config ] && grep -q "Protocol.*2" /etc/ssh/sshd_config 2>/dev/null; then
+    if [[ -f /etc/ssh/sshd_config ]] && grep -q "Protocol.*2" /etc/ssh/sshd_config 2>/dev/null; then
         encryption_configured=true
     fi
 
     # Check for TLS certificates in proper locations
-    if [ -d /etc/ssl/certs ] && [ "$(find /etc/ssl/certs -name "*.pem" -o -name "*.crt" 2>/dev/null | wc -l)" -gt 0 ]; then
+    if [[ -d /etc/ssl/certs ]] && [[ "$(find /etc/ssl/certs -name "*.pem" -o -name "*.crt" 2>/dev/null | wc -l)" -gt 0 ]]; then
         encryption_configured=true
     fi
 
-    if [ "$encryption_configured" = true ]; then
+    if [[ "$encryption_configured" = true ]]; then
         echo "✓ STIG: Communication encryption properly configured"
         passed=$((passed + 1))
     else
@@ -272,11 +272,11 @@ run_stig_checks() {
     fi
 
     # Check for container resource limits
-    if [ ! -f /etc/security/limits.d/container-limits.conf ]; then
+    if [[ ! -f /etc/security/limits.d/container-limits.conf ]]; then
         container_best_practices=false
     fi
 
-    if [ "$container_best_practices" = true ]; then
+    if [[ "$container_best_practices" = true ]]; then
         echo "✓ STIG: Container best practices implemented"
         passed=$((passed + 1))
     else
@@ -294,7 +294,7 @@ run_stig_checks() {
 
     # Calculate compliance rate
     total=$((passed + failed))
-    if [ "$total" -gt 0 ]; then
+    if [[ "$total" -gt 0 ]]; then
         rate=$((passed * 100 / total))
         printf "│ Compliance Level: %-36s │\n" "$STIG_COMPLIANCE_LEVEL"
         printf "│ Total Checks: %-42d │\n" "$total"
@@ -309,7 +309,7 @@ run_stig_checks() {
         printf "│ Compliance Rate: %-37s │\n" "N/A"
     fi
 
-    if [ "$failed" -gt 0 ]; then
+    if [[ "$failed" -gt 0 ]]; then
         echo "├─────────────────────────────────────────────────────────────┤"
         echo "│ RECOMMENDATIONS FOR FAILED CHECKS:                          │"
         echo "│ • Review and fix TLS certificate ownership                  │"
@@ -357,7 +357,7 @@ enforce_security_policy() {
 
     # Remove world-writable files
     world_writable=$(find / -type f -perm -002 2>/dev/null | wc -l)
-    if [ "$world_writable" -gt 0 ]; then
+    if [[ "$world_writable" -gt 0 ]]; then
         echo "Found $world_writable world-writable files - removing write permissions"
         find / -type f -perm -002 -exec chmod o-w {} \; 2>/dev/null || true
     fi
@@ -365,7 +365,7 @@ enforce_security_policy() {
     # Secure critical directories
     CRITICAL_DIRS="/etc/security /var/log /var/lib/hardn"
     for dir in $CRITICAL_DIRS; do
-        if [ -d "$dir" ]; then
+        if [[ -d "$dir" ]]; then
             chmod 750 "$dir" 2>/dev/null || true
         fi
     done

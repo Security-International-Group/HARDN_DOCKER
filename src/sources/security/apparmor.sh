@@ -18,7 +18,7 @@ configure_apparmor() {
     fi
 
     # Load the HARDN AppArmor profile if it exists
-    if [ -f /etc/apparmor.d/usr.bin.hardn ]; then
+    if [[ -f /etc/apparmor.d/usr.bin.hardn ]]; then
         echo "Loading HARDN AppArmor profile..."
         apparmor_parser -r /etc/apparmor.d/usr.bin.hardn 2>/dev/null || true
     fi
