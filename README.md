@@ -90,13 +90,6 @@ The container includes a sample web application using busybox httpd that demonst
 
 The container runs as a non-root user with comprehensive security hardening while maintaining full application functionality.
 
-## Project Links
-
-- **GitHub Repository**: https://github.com/Security-International-Group/HARDN_DOCKER
-- **Docker Hub**: https://hub.docker.com/r/securityinternationalgroup/hardn-xdr
-- **Security Policy**: [View Security Guidelines](SECURITY.md)
-- **Security Remediation Guide**: [SECURITY-REMEDIATION.md](SECURITY-REMEDIATION.md)
-
 ---
 
 *Built with security and compliance in mind for production deployments.*
