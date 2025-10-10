@@ -13,13 +13,13 @@ enable_content_trust() {
     mkdir -p /etc/docker/trust
 
     # Generate root key for content trust (if not exists)
-    if [ ! -f ~/.docker/trust/private/root-key.pem ]; then
+    if [[ ! -f ~/.docker/trust/private/root-key.pem ]]; then
         echo "Generating Docker Content Trust root key..."
         docker trust key generate root --dir /etc/docker/trust 2>/dev/null || true
     fi
 
     # Generate repository key
-    if [ ! -f ~/.docker/trust/private/hardn-repo-key.pem ]; then
+    if [[ ! -f ~/.docker/trust/private/hardn-repo-key.pem ]]; then
         echo "Generating repository key..."
         docker trust key generate hardn-repo --dir /etc/docker/trust 2>/dev/null || true
     fi
@@ -60,7 +60,7 @@ verify_base_image() {
     echo "✓ Trixie (testing) provides latest security updates"
 
     # Verify image signature if content trust is enabled
-    if [ "${DOCKER_CONTENT_TRUST:-0}" = "1" ]; then
+    if [[ "${DOCKER_CONTENT_TRUST:-0}" = "1" ]]; then
         echo "✓ Content trust enabled for base image verification"
     fi
 }
@@ -130,26 +130,26 @@ verify_image_security() {
     echo "Verifying image security configuration..."
 
     # Check content trust
-    if [ "${DOCKER_CONTENT_TRUST:-0}" = "1" ]; then
+    if [[ "${DOCKER_CONTENT_TRUST:-0}" = "1" ]]; then
         echo "✓ Docker Content Trust enabled"
     else
         echo "✗ Docker Content Trust disabled"
     fi
 
     # Check for security configurations
-    if [ -f /etc/docker/image-scan.conf ]; then
+    if [[ -f /etc/docker/image-scan.conf ]]; then
         echo "✓ Image scanning configured"
     else
         echo "✗ Image scanning not configured"
     fi
 
-    if [ -f /etc/docker/build-security.conf ]; then
+    if [[ -f /etc/docker/build-security.conf ]]; then
         echo "✓ Build security configured"
     else
         echo "✗ Build security not configured"
     fi
 
-    if [ -f /etc/docker/trust-policy.json ]; then
+    if [[ -f /etc/docker/trust-policy.json ]]; then
         echo "✓ Image signing policy configured"
     else
         echo "✗ Image signing policy not configured"

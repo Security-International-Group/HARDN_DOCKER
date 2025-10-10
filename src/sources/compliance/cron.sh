@@ -30,18 +30,18 @@ log_info() {
 }
 
 setup_lock() {
-    [ -f "$LOCK_FILE" ] && [ "$(($(date +%s) - $(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0)))" -lt 3600 ] && { log_error "Lock file exists"; exit 1; } || rm -f "$LOCK_FILE"
+    [[ -f "$LOCK_FILE" ]] && [[ "$(($(date +%s) - $(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0)))" -lt 3600 ]] && { log_error "Lock file exists"; exit 1; } || rm -f "$LOCK_FILE"
     touch "$LOCK_FILE"
     trap 'rm -f "$LOCK_FILE"' EXIT
 }
 
-check_root() { [ $EUID -ne 0 ] && { log_error "Must run as root"; exit 1; }; }
+check_root() { [[ $EUID -ne 0 ]] && { log_error "Must run as root"; exit 1; }; }
 
 update_debian() {
     log_info "Updating Debian packages..."
     apt-get update --error-on=any || { log_error "Update failed"; return 1; }
     SECURITY_UPDATES=$(apt-get --just-print upgrade | grep -c "^Inst.*security" || true)
-    [ "$SECURITY_UPDATES" -gt 0 ] && log_warning "$SECURITY_UPDATES security updates"
+    [[ "$SECURITY_UPDATES" -gt 0 ]] && log_warning "$SECURITY_UPDATES security updates"
     apt-get upgrade -y --with-new-pkgs=no || { log_error "Upgrade failed"; return 1; }
     apt-get autoremove -y && apt-get autoclean && apt-get clean
     log_success "Debian updates done"
@@ -50,7 +50,7 @@ update_debian() {
 update_docker() {
     log_info "Updating Docker..."
     command -v docker >/dev/null 2>&1 || { log_warning "Docker not found"; return 0; }
-    [ -f "$PROJECT_ROOT/docker-compose.yml" ] && cd "$PROJECT_ROOT" && docker-compose pull || log_warning "Pull failed"
+    [[ -f "$PROJECT_ROOT/docker-compose.yml" ]] && cd "$PROJECT_ROOT" && docker-compose pull || log_warning "Pull failed"
     docker system prune -f >/dev/null 2>&1 || true
     docker image prune -f >/dev/null 2>&1 || true
     log_success "Docker updates done"
@@ -59,14 +59,14 @@ update_docker() {
 update_ruby() {
     log_info "Updating Ruby gems..."
     command -v ruby >/dev/null 2>&1 || { log_warning "Ruby not found"; return 0; }
-    [ -f "$PROJECT_ROOT/Gemfile" ] && command -v bundle >/dev/null 2>&1 && cd "$PROJECT_ROOT" && bundle update || log_warning "Bundle update failed"
+    [[ -f "$PROJECT_ROOT/Gemfile" ]] && command -v bundle >/dev/null 2>&1 && cd "$PROJECT_ROOT" && bundle update || log_warning "Bundle update failed"
     command -v gem >/dev/null 2>&1 && gem update --system || log_warning "Gem update failed"
     log_success "Ruby updates done"
 }
 
 run_scans() {
     log_info "Running scans..."
-    command -v docker >/dev/null 2>&1 && docker scout --help >/dev/null 2>&1 && [ -f "$PROJECT_ROOT/Dockerfile" ] && cd "$PROJECT_ROOT" && docker scout cves Dockerfile || log_warning "Scout failed"
+    command -v docker >/dev/null 2>&1 && docker scout --help >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/Dockerfile" ]] && cd "$PROJECT_ROOT" && docker scout cves Dockerfile || log_warning "Scout failed"
     command -v lynis >/dev/null 2>&1 && lynis audit system --quiet --no-colors || log_warning "Lynis failed"
     command -v oscap >/dev/null 2>&1 && log_info "OpenSCAP available (needs config)" || log_warning "OpenSCAP not found"
 }
@@ -76,8 +76,8 @@ check_files() {
     cd "$PROJECT_ROOT"
     grep -r "password\|secret\|key" --include="*.sh" --include="*.py" --include="*.rb" . 2>/dev/null | grep -v ".*=" >/dev/null && log_warning "Potential secrets found"
     WORLD_WRITABLE=$(find . -type f -perm -002 2>/dev/null | wc -l)
-    [ "$WORLD_WRITABLE" -gt 0 ] && log_warning "$WORLD_WRITABLE world-writable files"
-    [ -f "package.json" ] && command -v npm >/dev/null 2>&1 && npm audit --audit-level=moderate >/dev/null 2>&1 || log_warning "NPM audit issues"
+    [[ "$WORLD_WRITABLE" -gt 0 ]] && log_warning "$WORLD_WRITABLE world-writable files"
+    [[ -f "package.json" ]] && command -v npm >/dev/null 2>&1 && npm audit --audit-level=moderate >/dev/null 2>&1 || log_warning "NPM audit issues"
     log_success "File checks done"
 }
 
@@ -85,7 +85,7 @@ update_tools() {
     log_info "Updating security tools..."
     command -v freshclam >/dev/null 2>&1 && freshclam || log_warning "Freshclam failed"
     command -v rkhunter >/dev/null 2>&1 && rkhunter --update || log_warning "Rkhunter failed"
-    command -v aide >/dev/null 2>&1 && [ -f /var/lib/aide/aide.db ] && aide --check --config=/etc/aide/aide.conf || log_warning "AIDE failed"
+    command -v aide >/dev/null 2>&1 && [[ -f /var/lib/aide/aide.db ]] && aide --check --config=/etc/aide/aide.conf || log_warning "AIDE failed"
     log_success "Tools updated"
 }
 

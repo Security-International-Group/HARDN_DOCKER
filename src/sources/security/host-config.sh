@@ -59,7 +59,7 @@ configure_tls_auth() {
     mkdir -p /etc/ssl/docker
 
     # Generate CA certificate
-    if [ ! -f /etc/ssl/docker/ca.pem ]; then
+    if [[ ! -f /etc/ssl/docker/ca.pem ]]; then
         openssl genrsa -out /etc/ssl/docker/ca-key.pem 4096 2>/dev/null || true
         openssl req -new -x509 -days 365 -key /etc/ssl/docker/ca-key.pem \
             -out /etc/ssl/docker/ca.pem \
@@ -67,7 +67,7 @@ configure_tls_auth() {
     fi
 
     # Generate client certificate
-    if [ ! -f /etc/ssl/docker/client-cert.pem ]; then
+    if [[ ! -f /etc/ssl/docker/client-cert.pem ]]; then
         openssl genrsa -out /etc/ssl/docker/client-key.pem 4096 2>/dev/null || true
         openssl req -subj "/CN=docker-client" -new -key /etc/ssl/docker/client-key.pem \
             -out /etc/ssl/docker/client.csr 2>/dev/null || true
@@ -95,16 +95,16 @@ configure_user_namespace() {
     echo "Configuring user namespace..."
 
     # Create subuid and subgid files for rootless containers
-    if [ ! -f /etc/subuid ]; then
+    if [[ ! -f /etc/subuid ]]; then
         echo "root:100000:65536" > /etc/subuid
     fi
 
-    if [ ! -f /etc/subgid ]; then
+    if [[ ! -f /etc/subgid ]]; then
         echo "root:100000:65536" > /etc/subgid
     fi
 
     # Configure userns-remap in Docker
-    if [ -f /etc/docker/daemon.json ]; then
+    if [[ -f /etc/docker/daemon.json ]]; then
         # Add userns-remap if not present
         if ! grep -q "userns-remap" /etc/docker/daemon.json; then
             sed -i 's/}/,\n  "userns-remap": "default"\n}/' /etc/docker/daemon.json
@@ -149,7 +149,7 @@ configure_live_restore() {
     echo "Configuring Docker live restore..."
 
     # Add live-restore to daemon.json if not present
-    if [ -f /etc/docker/daemon.json ]; then
+    if [[ -f /etc/docker/daemon.json ]]; then
         if ! grep -q "live-restore" /etc/docker/daemon.json; then
             sed -i 's/}/,\n  "live-restore": true\n}/' /etc/docker/daemon.json
         fi
@@ -163,7 +163,7 @@ configure_userland_proxy() {
     echo "Disabling Docker userland proxy..."
 
     # Add userland-proxy setting to daemon.json
-    if [ -f /etc/docker/daemon.json ]; then
+    if [[ -f /etc/docker/daemon.json ]]; then
         if ! grep -q "userland-proxy" /etc/docker/daemon.json; then
             sed -i 's/}/,\n  "userland-proxy": false\n}/' /etc/docker/daemon.json
         fi
@@ -184,14 +184,14 @@ verify_host_config() {
     fi
 
     # Check TLS certificates
-    if [ -f /etc/ssl/docker/ca.pem ] && [ -f /etc/ssl/docker/client-cert.pem ]; then
+    if [[ -f /etc/ssl/docker/ca.pem ]] && [[ -f /etc/ssl/docker/client-cert.pem ]]; then
         echo "✓ TLS certificates exist"
     else
         echo "✗ TLS certificates missing"
     fi
 
     # Check user namespace
-    if [ -f /etc/subuid ] && [ -f /etc/subgid ]; then
+    if [[ -f /etc/subuid ]] && [[ -f /etc/subgid ]]; then
         echo "✓ User namespace configured"
     else
         echo "✗ User namespace not configured"

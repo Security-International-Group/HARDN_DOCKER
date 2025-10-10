@@ -103,7 +103,7 @@ analyze_network_traffic() {
     fi
 
     # Check network interface statistics
-    if [ -f /proc/net/dev ]; then
+    if [[ -f /proc/net/dev ]]; then
         echo "Network interface statistics:"
         grep -E "^[[:space:]]*[a-zA-Z0-9]+:" /proc/net/dev | head -5
     fi
@@ -116,7 +116,7 @@ configure_dns_security() {
     echo "Configuring DNS security..."
 
     # Use secure DNS settings
-    if [ -f /etc/resolv.conf ]; then
+    if [[ -f /etc/resolv.conf ]]; then
         # Add timeout and attempts for DNS queries
         echo "options timeout:2 attempts:3" >> /etc/resolv.conf
     fi

@@ -99,7 +99,7 @@ create_minimal_aide_config() {
     echo "Creating minimal AIDE configuration for optimal performance..."
 
     # Backup original config if it exists
-    if [ -f /etc/aide/aide.conf ]; then
+    if [[ -f /etc/aide/aide.conf ]]; then
         cp /etc/aide/aide.conf /etc/aide/aide.conf.backup
     fi
 
@@ -114,7 +114,7 @@ initialize_minimal_aide() {
     echo "Initializing minimal AIDE database..."
 
     # Ensure AIDE config exists
-    if [ ! -f /etc/aide/aide.conf ]; then
+    if [[ ! -f /etc/aide/aide.conf ]]; then
         create_minimal_aide_config
     fi
 
@@ -122,7 +122,7 @@ initialize_minimal_aide() {
     if [[ "$(id -u)" -eq 0 ]]; then
         if command -v aide >/dev/null 2>&1; then
             aide --config=/etc/aide/aide.conf --init
-            if [ -f /var/lib/aide/aide.db.new ]; then
+            if [[ -f /var/lib/aide/aide.db.new ]]; then
                 mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
                 echo "Minimal AIDE database initialized successfully"
             else
@@ -140,7 +140,7 @@ initialize_minimal_aide() {
 check_minimal_aide_integrity() {
     echo "Checking file integrity with minimal AIDE configuration..."
 
-    if [ ! -f /var/lib/aide/aide.db ]; then
+    if [[ ! -f /var/lib/aide/aide.db ]]; then
         echo "No AIDE database found. Initializing..."
         initialize_minimal_aide
         return 0
@@ -199,8 +199,8 @@ create_aide_database() {
 
     # Generate file attributes for critical files
     for file in $CRITICAL_FILES; do
-        if [ -e "$file" ]; then
-            if [ -d "$file" ]; then
+        if [[ -e "$file" ]]; then
+            if [[ -d "$file" ]]; then
                 # Directory monitoring
                 find "$file" -type f -exec stat -c "%n %s %Y %a %u %g %i" {} \; 2>/dev/null >> /var/lib/hardn/aide/database.db
             else
@@ -216,7 +216,7 @@ create_aide_database() {
 check_aide_integrity() {
     echo "Checking file integrity (AIDE-style)..."
 
-    if [ ! -f /var/lib/hardn/aide/database.db ]; then
+    if [[ ! -f /var/lib/hardn/aide/database.db ]]; then
         echo "No AIDE database found. Run create_aide_database first."
         return 1
     fi
@@ -224,9 +224,9 @@ check_aide_integrity() {
     local violations=0
 
     while IFS=' ' read -r filepath size mtime perms uid gid inode; do
-        if [ -e "$filepath" ]; then
+        if [[ -e "$filepath" ]]; then
             current_stat=$(stat -c "%s %Y %a %u %g %i" "$filepath" 2>/dev/null)
-            if [ "$current_stat" != "$size $mtime $perms $uid $gid $inode" ]; then
+            if [[ "$current_stat" != "$size $mtime $perms $uid $gid $inode" ]]; then
                 echo "INTEGRITY CHANGE: $filepath"
                 echo "  Expected: $size $mtime $perms $uid $gid $inode"
                 echo "  Current:  $current_stat"
@@ -238,7 +238,7 @@ check_aide_integrity() {
         fi
     done < /var/lib/hardn/aide/database.db
 
-    if [ $violations -eq 0 ]; then
+    if [[ "$violations" -eq 0 ]]; then
         echo "All files integrity verified successfully"
         return 0
     else
@@ -288,7 +288,7 @@ EOF
     # Apply different check levels based on file type
     echo "Applying AIDE check levels..."
     for level in $AIDE_CHECK_LEVELS; do
-        check_type=$(echo "$level" | cut -d: -f1)
+        check_type=$(cut -d: -f1 <<< "$level")
         echo "Check level $check_type configured"
     done
 
@@ -309,24 +309,24 @@ stig_file_integrity_check() {
     "
 
     for file in $STIG_FILES; do
-        if [ -f "$file" ]; then
+        if [[ -f "$file" ]]; then
             perms=$(stat -c "%a" "$file")
             owner=$(stat -c "%U" "$file")
 
             # Check permissions (STIG requirements)
             case "$file" in
                 "/etc/shadow"|"/etc/gshadow")
-                    if [ "$perms" != "600" ] || [ "$owner" != "root" ]; then
+                    if [[ "$perms" != "600" ]] || [[ "$owner" != "root" ]]; then
                         echo "STIG VIOLATION: $file permissions/ownership incorrect"
                     fi
                     ;;
                 "/etc/passwd"|"/etc/group")
-                    if [ "$perms" != "644" ] || [ "$owner" != "root" ]; then
+                    if [[ "$perms" != "644" ]] || [[ "$owner" != "root" ]]; then
                         echo "STIG VIOLATION: $file permissions/ownership incorrect"
                     fi
                     ;;
                 "/etc/sudoers"|"/boot/grub/grub.cfg")
-                    if [ "$perms" != "600" ] || [ "$owner" != "root" ]; then
+                    if [[ "$perms" != "600" ]] || [[ "$owner" != "root" ]]; then
                         echo "STIG VIOLATION: $file permissions/ownership incorrect"
                     fi
                     ;;
@@ -340,9 +340,7 @@ reinitialize_aide_database() {
     echo "Reinitializing AIDE database with current hardened state..."
 
     # Ensure AIDE config exists
-    if [ ! -f /etc/aide/aide.conf ]; then
-        create_minimal_aide_config
-    fi
+    if [[ ! -f /etc/aide/aide.conf ]]; then create_minimal_aide_config; fi
 
     # Reinitialize database with current state (requires root)
     if [[ "$(id -u)" -eq 0 ]]; then
@@ -353,7 +351,7 @@ reinitialize_aide_database() {
 
             # Initialize with current state as baseline
             aide --config=/etc/aide/aide.conf --init
-            if [ -f /var/lib/aide/aide.db.new ]; then
+            if [[ -f /var/lib/aide/aide.db.new ]]; then
                 mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
                 echo "AIDE database reinitialized successfully with hardened state as baseline"
                 return 0
