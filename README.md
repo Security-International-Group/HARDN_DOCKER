@@ -11,6 +11,7 @@ A security-hardened Debian-based Docker image that can host applications while m
  ## Docker Hub
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/tburns0321/hardn-docker)](https://hub.docker.com/r/tburns0321/hardn-docker)
+[![trivy](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml/badge.svg)](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml)
 
 **Pull from Docker Hub:**
 ```bash
@@ -89,13 +90,6 @@ The container includes a sample web application using busybox httpd that demonst
 3. Rebuild the image
 
 The container runs as a non-root user with comprehensive security hardening while maintaining full application functionality.
-
-## Project Links
-
-- **GitHub Repository**: https://github.com/Security-International-Group/HARDN_DOCKER
-- **Docker Hub**: https://hub.docker.com/r/securityinternationalgroup/hardn-xdr
-- **Security Policy**: [View Security Guidelines](SECURITY.md)
-- **Security Remediation Guide**: [SECURITY-REMEDIATION.md](SECURITY-REMEDIATION.md)
 
 ---
 
