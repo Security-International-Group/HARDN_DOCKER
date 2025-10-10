@@ -11,6 +11,7 @@ A security-hardened Debian-based Docker image that can host applications while m
  ## Docker Hub
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/tburns0321/hardn-docker)](https://hub.docker.com/r/tburns0321/hardn-docker)
+[![trivy](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml/badge.svg)](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml)
 
 **Pull from Docker Hub:**
 ```bash
