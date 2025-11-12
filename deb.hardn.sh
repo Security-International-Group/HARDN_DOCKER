@@ -4,8 +4,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 export DEBIAN_FRONTEND=noninteractive
+IN_CONTAINER=false
 if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
-  echo "Detected container environment - some operations may be limited"
+    echo "Detected container environment - some operations may be limited"
+    IN_CONTAINER=true
 fi
 
 ###############################################################################
@@ -239,16 +241,20 @@ if command -v apparmor_status >/dev/null 2>&1; then
     fi
 fi
 
-# Install UFW for firewall management
-if ! command -v ufw >/dev/null 2>&1; then
-    echo "  - Installing UFW..."
-    apt-get install -y --no-install-recommends ufw
-fi
-
-# Install Fail2ban for intrusion detection
-if ! command -v fail2ban-server >/dev/null 2>&1; then
-    echo "  - Installing Fail2ban..."
-    apt-get install -y --no-install-recommends fail2ban
+# Optionally install UFW and Fail2ban (host-level tools, Python-based). Skip inside containers by default.
+if [[ "${SKIP_HEAVY_SECURITY_TOOLS:-1}" = "0" && "${IN_CONTAINER}" = false ]]; then
+    # Install UFW for firewall management
+    if ! command -v ufw >/dev/null 2>&1; then
+        echo "  - Installing UFW..."
+        apt-get install -y --no-install-recommends ufw
+    fi
+    # Install Fail2ban for intrusion detection
+    if ! command -v fail2ban-server >/dev/null 2>&1; then
+        echo "  - Installing Fail2ban..."
+        apt-get install -y --no-install-recommends fail2ban
+    fi
+else
+    echo "  - Skipping UFW/Fail2ban installation (container environment or SKIP_HEAVY_SECURITY_TOOLS=1)"
 fi
 
 # Install libpam-pwquality for password quality enforcement
@@ -342,21 +348,6 @@ else
 fi
 
 echo "[+] Executing network security scripts..."
-if [[ -f "$SCRIPT_BASE/network/aide.sh" ]]; then
-    echo "  - Running AIDE integrity monitoring..."
-    source "$SCRIPT_BASE/network/aide.sh"
-    if command -v initialize_minimal_aide >/dev/null 2>&1; then
-        if initialize_minimal_aide; then
-            echo "  - AIDE completed successfully"
-        else
-            echo "  - AIDE completed with warnings"
-        fi
-    else
-        echo "    Warning: initialize_minimal_aide function not found"
-    fi
-else
-    echo "  - Warning: AIDE script not found"
-fi
 
 if [[ -f "$SCRIPT_BASE/security/security.sh" ]]; then
     echo "  - Running security configuration..."

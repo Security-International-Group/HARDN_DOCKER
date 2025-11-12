@@ -11,7 +11,6 @@ log "pwd=$(pwd)"
 log "args($#): ${*:-<none>}"
 env | grep -E '^(PATH|HOME|USER|SHELL)=' | sort | sed 's/^/[env] /' || true
 
-# Ensure we always have *some* command (prevents empty exec)
 if [[ $# -gt 0 ]]; then
   TARGET_CMD=("$@")
 else
@@ -19,7 +18,6 @@ else
 fi
 log "resolved command: ${TARGET_CMD[*]}"
 
-# Light checks; never fail startup
 for d in /opt/hardn-xdr /usr/local/bin; do
   [[ -d "$d" ]] && log "dir ok: $d" || log "dir missing: $d"
 done
@@ -27,7 +25,7 @@ for f in /usr/local/bin/deb.hardn.sh /usr/local/bin/entrypoint.sh; do
   [[ -f "$f" ]] && log "file ok: $f" || log "file missing: $f"
 done
 
-# -------- Non-root path (CI default) --------
+# -------- Non-root path  --------
 if [[ "$(id -u)" -ne 0 ]]; then
   log "non-root detected; skipping hardening and user/perm work"
   exec "${TARGET_CMD[@]}"

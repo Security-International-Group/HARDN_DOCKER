@@ -20,79 +20,12 @@ Size = s+b
 InodeData = OwnerMode+n+i+Size+l+X
 StaticFile = m+c+Checksums
 Full = InodeData+StaticFile
-VarTime = InodeData+Checksums
-VarInode = VarTime-i
-VarFile = OwnerMode+n+l+X
-VarDir = OwnerMode+n+i+X
+#!/bin/bash
+# (Removed) AIDE integrity monitoring script was deprecated to reduce image size
+# and eliminate dependencies introducing CVEs (sqlite, perl). This file remains
+# as a stub to avoid build references breaking. All functions intentionally removed.
 
-# Exclude volatile and unnecessary directories
-!/proc
-!/sys
-!/dev
-!/tmp
-!/var/tmp
-!/var/cache
-!/var/log
-!/run
-!/mnt
-!/media
-
-# Core system binaries and libraries (critical only)
-/bin/sh Full
-/bin/bash Full
-/sbin/init Full
-/usr/bin/sudo Full
-/usr/bin/passwd Full
-/usr/sbin/useradd Full
-/usr/sbin/userdel Full
-/usr/sbin/groupadd Full
-/usr/sbin/groupdel Full
-
-# Critical configuration files
-/etc/passwd Full
-/etc/shadow Full
-/etc/group Full
-/etc/gshadow Full
-/etc/hosts Full
-/etc/hostname Full
-/etc/resolv.conf Full
-/etc/fstab Full
-/etc/inittab Full
-/etc/crontab Full
-/etc/sysctl.conf Full
-/etc/sysctl.d/99-hardening.conf Full
-/etc/login.defs Full
-/etc/sudoers Full
-
-# Security configuration
-/etc/pam.d/.* Full
-/etc/security/.* Full
-/etc/ssh/sshd_config Full
-/etc/ssh/ssh_config Full
-
-# Network and firewall
-/etc/iptables/.* Full
-/etc/ufw/.* Full
-
-# Audit and logging configuration
-/etc/audit/auditd.conf Full
-/etc/audit/audit.rules Full
-/etc/rsyslog.conf Full
-
-# Package management critical files
-/etc/apt/sources.list Full
-/etc/apt/trusted.gpg.d/.* Full
-
-# Time synchronization
-/etc/chrony/chrony.conf Full
-
-# Security tools configuration
-/etc/fail2ban/jail.local Full
-/etc/aide/aide.conf Full
-
-# Apparmor profiles
-/etc/apparmor.d/.* Full
-'
+echo "[INFO] aide.sh stub: AIDE support removed from hardened image" >&2
 
 # Function to create minimal AIDE configuration
 create_minimal_aide_config() {

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail  # Enable strict error handling
+set -euo pipefail  
 
 echo "=========================================="
 echo " HARDN-XDR Container Health Check"
@@ -84,7 +84,7 @@ for tool in "${ESSENTIAL_TOOLS[@]}"; do
     fi
 done
 
-# Native security implementations check
+#  security
 echo ""
 echo "=== Native Security Implementations ==="
 

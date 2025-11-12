@@ -1,5 +1,5 @@
 
-![hardn](src/sources/C20B6DE6-87CA-4439-A74F-3CD2D4BF5A82.png)
+![hardn](src/sources/hardn_docker.png)
 
 <p align="center">
  
@@ -33,7 +33,7 @@ docker-compose up -d
 
 ### 3. Access Your App
 The application will be available at:
-- **http://localhost:8082**
+- **http://localhost:8082** (mapped to container port 5000)
 
 Test it:
 ```bash
@@ -83,7 +83,7 @@ The image includes comprehensive hardening scripts in `/sources/`:
 
 ## Application Deployment
 
-The container includes a sample web application using busybox httpd that demonstrates the image can successfully host applications. To deploy your own application:
+The container includes a sample web application served via `socat` that demonstrates the image can successfully host applications. To deploy your own application:
 
 1. Replace `/usr/local/bin/simple-server` with your application
 2. Update the Dockerfile CMD if needed
@@ -94,6 +94,35 @@ The container runs as a non-root user with comprehensive security hardening whil
 ---
 
 *Built with security and compliance in mind for production deployments.*
+## Vulnerability Scanning with Trivy
+
+Validate the hardened image using Trivy after each build.
+
+### Install Trivy (Debian/Ubuntu Linux)
+```bash
+# Add Aqua Security's official Trivy APT repository (keyring-based)
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://aquasecurity.github.io/trivy-repo/deb/public.key \
+	| sudo gpg --dearmor -o /etc/apt/keyrings/trivy.gpg
+echo "deb [signed-by=/etc/apt/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb \$(. /etc/os-release && echo $VERSION_CODENAME) main" \
+	| sudo tee /etc/apt/sources.list.d/trivy.list >/dev/null
+sudo apt-get update
+sudo apt-get install -y trivy
+```
+### Re-scan 
+
+```bash
+# If you have the docker CLI plugin:
+docker compose build --no-cache && \
+	trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln && \
+	trivy image hardn-xdr:latest --scanners vuln
+
+# Or with docker-compose v1:
+docker-compose build --no-cache && \
+	trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln && \
+	trivy image hardn-xdr:latest --scanners vuln
+```
+
 ## Architecture
 
 ```bash
@@ -113,8 +142,7 @@ hardn-xdr/
 │  │  ├─ part.sh              # Docker partition & memory security
 │  │  └─ protection.sh        # Memory protection & buffer overflow prevention
 │  ├─ network/
-│  │  ├─ aide.sh              # AIDE integrity monitoring
-│  │  └─ tripwire.sh          # Tripwire intrusion detection
+│  │  └─ tripwire.sh          # Tripwire intrusion detection (AIDE removed to reduce dependencies/CVEs)
 │  ├─ privilege/
 │  │  ├─ access.sh            # PAM security & user access controls
 │  │  └─ rkhunter.sh          # rkhunter rootkit detection
