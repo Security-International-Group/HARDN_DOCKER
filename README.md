@@ -59,7 +59,7 @@ curl http://localhost:8082
 -  **No new privileges** capability
 -  **User namespace remapping** enabled
 
-### Hardening Scripts
+### HARDN Scripts
 The image includes comprehensive hardening scripts in `/sources/`:
 - `compliance/` - OpenSCAP and cron-based compliance monitoring
 - `memory/` - Memory protection and partition management (`part.sh`)
@@ -73,7 +73,7 @@ The image includes comprehensive hardening scripts in `/sources/`:
 - All security scripts execute during Docker build as root
 - System configurations are applied and locked down
 - Hardening completion marker is created
-- Image is prepared for secure runtime execution
+- Image is prepared for secure runtime execution as ROFS
 
 ### Runtime Security
 - Container runs as non-root user (uid=10001)
@@ -117,10 +117,6 @@ docker compose build --no-cache && \
 	trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln && \
 	trivy image hardn-xdr:latest --scanners vuln
 
-# Or with docker-compose v1:
-docker-compose build --no-cache && \
-	trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln && \
-	trivy image hardn-xdr:latest --scanners vuln
 ```
 
 ## Architecture
