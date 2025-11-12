@@ -256,3 +256,36 @@ jobs:
             artifacts/stig_results.xml
             sbom.spdx.json
         continue-on-error: false 
+
+      - name: Discord notification
+        if: always()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DEV_UPDATES_DISCORD_WEBHOOK }}
+        run: |
+          STATUS="${{ job.status }}"
+          VERSION="${{ steps.version.outputs.next }}"
+          IMAGE_NAME="${{ steps.repo.outputs.name }}"
+          MSG="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.next }}"
+          GHCR_URL="ghcr.io/${IMAGE_NAME}:${{ steps.version.outputs.next }}"
+
+          if command -v hardn-discord.sh >/dev/null 2>&1; then
+        if [[ "$STATUS" == "success" ]]; then
+          hardn-discord.sh "HARDN DOCKER RELEASED" "HARDN Docker ${VERSION} Published: $MSG" || true
+        else
+          hardn-discord.sh "HARDN DOCKER BUILD FAILED" "HARDN Docker build failed for ${VERSION} on branch ${{ github.ref_name }}" || true
+        fi
+          elif [[ -n "${WEBHOOK:-}" ]]; then
+        COLOR=15105570  # Default gray
+        [[ "$STATUS" == "success" ]] && COLOR=3066993 || true  # Green
+        [[ "$STATUS" == "failure" ]] && COLOR=15158332 || true  # Red
+
+        if [[ "$STATUS" == "success" ]]; then
+          DESCRIPTION="**HARDN Docker Image Published**\\n**Image**: \`${GHCR_URL}\`\\n**Version**: \`${VERSION}\`\\n**Platforms**: \`linux/amd64, linux/arm64\`\\n**Status**: **${STATUS}** on branch \`${{ github.ref_name }}\`\\n\\n**Pull Command**:\\n\`docker pull ${GHCR_URL}\`"
+        else
+          DESCRIPTION="**HARDN Docker Build Failed**\\n**Version**: \`${VERSION}\`\\n**Status**: **${STATUS}** on branch \`${{ github.ref_name }}\`"
+        fi
+
+        curl -H "Content-Type: application/json" -X POST "$WEBHOOK" \
+          -d "{\"embeds\":[{\"title\":\"HARDN DOCKER • ${{ github.repository }}\",\"description\":\"$DESCRIPTION\",\"color\":$COLOR,\"url\":\"$MSG\"}]}" || true
+          fi
