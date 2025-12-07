@@ -8,7 +8,7 @@
 
 A security-hardened Debian-based Docker image that can host applications while maintaining CIS compliance and security best practices.
 
- ## Docker Hub
+
 
 <p align="center">
 	<a href="https://hub.docker.com/r/tburns0321/hardn-docker"><img src="https://img.shields.io/docker/pulls/tburns0321/hardn-docker" alt="Docker Pulls" /></a>
@@ -17,17 +17,12 @@ A security-hardened Debian-based Docker image that can host applications while m
 	<a href="https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER/"><img src="https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER.svg?style=flat&label=views" alt="views" /></a>
 </p>
 
-**Pull from Docker Hub:**
-```bash
-docker pull tburns0321/hardn-docker:1.0.21
-```
 ## Quick Start
 
-### 1. Clone and Build
+### 1. Clone 
 ```bash
 git clone https://github.com/Security-International-Group/HARDN_DOCKER.git
 cd HARDN_DOCKER
-docker-compose build
 ```
 
 ### 2. Run the Container and test
