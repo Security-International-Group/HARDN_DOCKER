@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Aliases: 13, 13.1, latest, trixie, trixie-20250908
-FROM debian:13.1-slim@sha256:c2880112cc5c61e1200c26f106e4123627b49726375eb5846313da9cca117337
-
+FROM debian:stable-slim
 ###############################################
 # H A R D N - X D R   D o c k e r   I m a g e #
 ###############################################
@@ -357,11 +356,27 @@ RUN apt-get update && \
     apt-get autoremove -y --purge && \
     rm -rf /var/lib/apt/lists/*
 
-# Create a simple web server using socat to serve a static response
+# Create a simple body template and response helper for socat
 RUN mkdir -p /var/www && \
-    printf '%s' 'HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>HARDN-XDR Container</h1><p>Hardened Debian 13 container is running successfully.</p></body></html>' > /var/www/response.txt && \
-    printf '%s\n' '#!/bin/sh' 'exec socat TCP-LISTEN:5000,reuseaddr,fork SYSTEM:"cat /var/www/response.txt"' > /usr/local/bin/simple-server && \
-    chmod +x /usr/local/bin/simple-server
+    cat <<'EOF' > /var/www/body.html
+<html><body><h1>HARDN-XDR Container</h1><p>Hardened Debian 13 container is running successfully.</p></body></html>
+EOF
+RUN cat <<'EOF' > /usr/local/bin/response.sh
+#!/bin/bash
+set -Eeuo pipefail
+body=$(cat /var/www/body.html)
+len=$(printf '%s' "$body" | wc -c)
+printf 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' "$len" "$body"
+EOF
+RUN chmod +x /usr/local/bin/response.sh
+
+# Create a simple web server using socat to serve the templated response
+RUN cat <<'EOF' > /usr/local/bin/simple-server
+#!/bin/bash
+set -Eeuo pipefail
+exec socat TCP-LISTEN:5000,reuseaddr,fork SYSTEM:"/usr/local/bin/response.sh"
+EOF
+RUN chmod +x /usr/local/bin/simple-server
 
 # Document the port the simple-server listens on
 EXPOSE 5000

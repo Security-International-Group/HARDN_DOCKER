@@ -26,19 +26,18 @@ cd HARDN_DOCKER
 docker-compose build
 ```
 
-### 2. Run the Container
+### 2. Run the Container and test
 ```bash
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
+curl http://localhost:8082
 ```
 
-### 3. Access Your App
-The application will be available at:
-- **http://localhost:8082** (mapped to container port 5000)
-
-Test it:
+### 3. Troubleshooting
+- Here are the troubleshooting commands to navigate any build or run errors.
 ```bash
-curl http://localhost:8082
-# Should return: "Hello, World : ) This application is running inside the hardened container."
+docker compose logs --tail 100
+docker compose exec hardn /usr/local/bin/deb.hardn.sh --remediate-all
 ```
 
 ## Security Features
@@ -98,42 +97,39 @@ The container runs as a non-root user with comprehensive security hardening whil
 
 Validate the hardened image using Trivy after each build.
 
-### Install Trivy (Debian/Ubuntu Linux)
-```bash
-# Add Aqua Security's official Trivy APT repository (keyring-based)
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://aquasecurity.github.io/trivy-repo/deb/public.key \
-	| sudo gpg --dearmor -o /etc/apt/keyrings/trivy.gpg
-echo "deb [signed-by=/etc/apt/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb \$(. /etc/os-release && echo $VERSION_CODENAME) main" \
-	| sudo tee /etc/apt/sources.list.d/trivy.list >/dev/null
-sudo apt-get update
-sudo apt-get install -y trivy
 ```
-### Re-scan 
+Report Summary
+
+┌────────────────────────────────┬────────┬─────────────────┐
+│             Target             │  Type  │ Vulnerabilities │
+├────────────────────────────────┼────────┼─────────────────┤
+│ hardn-xdr:latest (debian 13.2) │ debian │        0        │
+└────────────────────────────────┴────────┴─────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+```
+
+### Scan 
 
 ```bash
 # If you have the docker CLI plugin:
-docker compose build --no-cache && \
-	trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln && \
-	trivy image hardn-xdr:latest --scanners vuln
-
-# Or with docker-compose v1:
-docker-compose build --no-cache && \
-	trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln && \
-	trivy image hardn-xdr:latest --scanners vuln
+docker compose build --no-cache
+trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln
+trivy image hardn-xdr:latest --scanners vuln
 ```
 
 ## Architecture
 
 ```bash
 hardn-xdr/
-├─ Dockerfile                    # Container build with security hardening
-├─ docker-compose.yml           # Container orchestration with security settings
-├─ deb.hardn.sh                 # Main hardening script (calls all /sources scripts)
-├─ entrypoint.sh                # Container entrypoint with privilege dropping
-├─ health_check.sh              # Health monitoring and compliance checks
-├─ smoke_test.sh                # Pre-deployment compliance verification
-├─ src/sources/                 # Security hardening scripts directory
+├─ Dockerfile                   
+├─ docker-compose.yml           
+├─ deb.hardn.sh                
+├─ entrypoint.sh               
+├─ health_check.sh              
+├─ smoke_test.sh                
+├─ src/sources/                 
 │  ├─ compliance/
 │  │  ├─ openscap-registry.sh   # OpenSCAP compliance scanning
 │  │  └─ cron.sh               # Automated compliance monitoring
@@ -153,7 +149,6 @@ hardn-xdr/
 │     ├─ image-security.sh    # Container image security
 │     ├─ integrity.sh         # File integrity monitoring
 │     ├─ security.sh          # Core security configurations
-│     ├─ selinux.sh           # SELinux policy configuration
 │     └─ docker-daemon.sh     # Docker daemon security (TLS, audit, etc.)
 ├─ README.md                    # This documentation
 └─ SECURITY-REMEDIATION.md     # Security hardening guide
