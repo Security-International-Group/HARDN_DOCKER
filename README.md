@@ -3,11 +3,10 @@
 
 <p align="center">
  
-
-# Security International Group - Hardened Docker Image
-
-A security-hardened Debian-based Docker image that can host applications while maintaining CIS compliance and security best practices.
-
+<p align="center">
+	<strong>Security International Group - Hardened Docker Image</strong><br>
+	A security-hardened Debian-based Docker image that can host applications while maintaining CIS compliance and security best practices.
+</p>
 
 
 <p align="center">
