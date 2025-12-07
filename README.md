@@ -13,7 +13,7 @@ A security-hardened Debian-based Docker image that can host applications while m
 [![Docker Pulls](https://img.shields.io/docker/pulls/tburns0321/hardn-docker)](https://hub.docker.com/r/tburns0321/hardn-docker)
 [![trivy](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml/badge.svg)](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml)
 [![Debian Base](https://img.shields.io/badge/debian-13.2-red?logo=debian&logoColor=white)](https://www.debian.org/)
-[![views](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FSecurity-International-Group%2FHARDN_DOCKER&count_bg=%23D81B60&title_bg=%23555555&icon=github.svg&icon_color=white&title=views&edge_flat=false)](https://github.com/Security-International-Group/HARDN_DOCKER)
+[![views](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FSecurity-International-Group%2FHARDN_DOCKER&count_bg=%23D81B60&title_bg=%23555555&icon=github.svg&icon_color=white&title=views&edge_flat=false)](./)
 
 **Pull from Docker Hub:**
 ```bash
