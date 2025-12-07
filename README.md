@@ -10,10 +10,12 @@ A security-hardened Debian-based Docker image that can host applications while m
 
  ## Docker Hub
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/tburns0321/hardn-docker)](https://hub.docker.com/r/tburns0321/hardn-docker)
-[![trivy](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml/badge.svg)](https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml)
-[![Debian Base](https://img.shields.io/badge/debian-13.2-red?logo=debian&logoColor=white)](https://www.debian.org/)
-[![views](https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER.svg?style=flat&label=views)](https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER/)
+<p align="center">
+	<a href="https://hub.docker.com/r/tburns0321/hardn-docker"><img src="https://img.shields.io/docker/pulls/tburns0321/hardn-docker" alt="Docker Pulls" /></a>
+	<a href="https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml"><img src="https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml/badge.svg" alt="trivy" /></a>
+	<a href="https://www.debian.org/"><img src="https://img.shields.io/badge/debian-13.2-red?logo=debian&logoColor=white" alt="Debian Base" /></a>
+	<a href="https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER/"><img src="https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER.svg?style=flat&label=views" alt="views" /></a>
+</p>
 
 **Pull from Docker Hub:**
 ```bash
