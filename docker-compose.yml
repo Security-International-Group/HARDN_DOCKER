@@ -6,7 +6,7 @@ services:
     image: hardn-xdr:latest
     container_name: hardn_docker
     restart: on-failure:5
-    user: "10001:10001"  # Run as non-root user
+    user: "10001:10001"  
 
     # Resource limits (CIS 5.10, 5.11, 5.28)
     mem_limit: 512m
@@ -29,19 +29,19 @@ services:
       - /run:rw,noexec,nosuid,size=16m,mode=0755
       - /home/hardn:rw,size=32m,mode=0755
       - /var/lib/hardn:rw,size=32m,mode=0755
-    userns_mode: host  # Use host user namespaces
+    # Do not share the host user namespace; sharing causes bench warnings.
+    # Removing `userns_mode: host` avoids exposing host UID/GID mappings to the container.
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: 3
     #######################################################
-    # Volumes for persistent data (read-only root filesystem)
+    # Volumes for persistent data (ROFS)
     volumes:
       - ./logs:/opt/hardn-xdr/state:rw
       - ./config:/opt/hardn-xdr/config:ro
-
-    # Environment variables
+    #######################################################
     environment:
       - TZ=UTC
       - LANG=C.UTF-8
@@ -62,7 +62,6 @@ services:
     ports:
       - "127.0.0.1:8082:5000"
 
-    # Labels for organization and compliance
     labels:
       - "project=hardn-xdr"
       - "version=1.0"
@@ -73,3 +72,14 @@ services:
       - "security.readonly.rootfs=true"
       - "security.no.new.privileges=true"
       - "security.capabilities=restricted"
+
+    # Isolated user-defined network (bench 2.1)
+    networks:
+      - hardn_net
+
+networks:
+  hardn_net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+    internal: false  
