@@ -58,8 +58,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get purge -y aide aide-common debsums || true; \
     # Remove krb5 libraries to drop related LOW CVEs
     apt-get purge -y libgssapi-krb5-2 libkrb5-3 libkrb5support0 libk5crypto3 || true; \
-    # Remove tar to avoid CVE-2005-2541 if not needed at runtime
-    apt-get purge -y tar || true; \
     # Remove busybox (CVE-2023-39810 HIGH) - we'll use coreutils instead
     apt-get purge -y busybox busybox-static || true; \
     # Remove wget (CVE-2021-31879 MEDIUM) - use curl instead
@@ -173,41 +171,6 @@ RUN if [ "$FAST_BUILD" != "1" ]; then \
 
 # Ensure /tmp and /var/tmp are sticky (1777)
 RUN chmod 1777 /tmp /var/tmp || true
-
-# Safe tar wrapper with enhanced security checks
-RUN printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'set -euo pipefail' \
-    '_real="/usr/bin/tar"' \
-    '' \
-    '# Enhanced security: Warn about setuid/setgid extraction' \
-    'echo "WARNING: This wrapper enforces tar security policies" >&2' \
-    '' \
-    'extract=0; prev=""; archive=""' \
-    'for a in "$@"; do' \
-    '  [[ "$a" == "-x" || "$a" == "--extract" ]] && extract=1' \
-    '  if [[ "$prev" == "-f" || "$prev" == "--file" ]] ; then archive="$a"; prev=""; continue; fi' \
-    '  [[ "$a" == "-f" || "$a" == "--file" ]] && prev="$a"' \
-    'done' \
-    '' \
-    'if [[ $extract -eq 1 && -n "${archive:-}" ]]; then' \
-    '  # Check for path traversal' \
-    '  "$_real" -tf "$archive" | awk '"'"'/^(\/|.*\/\.\.\/|^\.\.\/)/ {print "E: unsafe path: " $0 > "/dev/stderr"; bad=1} END {exit bad}'"'"'' \
-    '  # Check for symlinks and hardlinks (CVE-2005-2541)' \
-    '  if "$_real" -tvf "$archive" | grep -Eq "^[lh]"; then' \
-    '    echo "E: archive contains link entries; refusing extraction" >&2; exit 1' \
-    '  fi' \
-    '  # Check for setuid/setgid files (CVE-2005-2541)' \
-    '  if "$_real" -tvf "$archive" | grep -Eq "^[d-][rwxs-]{2}[st]"; then' \
-    '    echo "W: archive contains setuid/setgid files; extracting with --no-same-permissions" >&2' \
-    '  fi' \
-    '  exec "$_real" "$@" --no-same-owner --no-same-permissions --keep-old-files --no-overwrite-dir --delay-directory-restore' \
-    'else' \
-    '  exec "$_real" "$@"' \
-    'fi' \
-    > /usr/local/bin/tar && chmod 0755 /usr/local/bin/tar
-
-# -----------------------------------------------------------------------
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD bash -lc '\
@@ -389,6 +352,8 @@ RUN set -eux; \
         apt-get purge -y curl libcurl4t64 libsqlite3-0 sqlite3 || true; \
         # Remove LOW CVEs: perl, iptables
         apt-get purge -y perl perl-base perl-modules-5.40 libperl5.40 || true; \
+		# Remove tar to avoid CVE-2005-2541 if not needed at runtime
+		apt-get purge -y tar || true; \
         apt-get purge -y iptables libip4tc2 libip6tc2 libxtables12 || true; \
         apt-get autoremove -y --purge || true; \
         apt-get clean || true; \
