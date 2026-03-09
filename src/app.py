@@ -1,5 +1,6 @@
 from flask import Flask, request
 import logging
+import os
 import subprocess
 import json
 from typing import Dict, List, Tuple, Any
@@ -143,4 +144,5 @@ def server_error(error: HTTPException) -> Tuple[Dict[str, str], int]:
     return {'error': 'Internal server error'}, 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # debug=False required for production/CIS compliance (information disclosure)
+    app.run(host='0.0.0.0', port=5000, debug=False)

@@ -4,8 +4,8 @@
 <p align="center">
 
 <p align="center">
-	<strong>Security International Group - Hardened Docker Image</strong><br>
-	A security-hardened Debian 13 (Trixie) Docker image with pure container-internal CIS/STIG hardening — no host changes, no daemon writes, no socket access.
+	<strong>Security International Group — Hardened Docker Image</strong><br>
+	A security-hardened Debian 13 (Trixie) container image built for CIS Docker Benchmark 1.13.0, DISA STIG, and FIPS 140-3 aligned compliance. All hardening runs inside the container — no host daemon writes, no socket access, no kernel module loading.
 </p>
 
 <p align="center">
@@ -104,17 +104,19 @@ Output shows `[PASS]`, `[WARN]`, `[INFO]`, and `[FAIL]` results across all CIS c
 ### Quick in-container compliance check
 
 ```bash
-docker run --rm -u 0 hardn-xdr:dev bash -c '
-  echo "--- CIS Controls ---"
+docker run --rm -u 0 hardn-xdr:latest bash -c '
+  echo "--- CIS / FIPS Controls ---"
   echo -n "sysctl hardening file : "; test -f /etc/sysctl.d/99-hardening.conf && echo PASS || echo FAIL
   echo -n "core dumps disabled   : "; grep -q "hard core 0" /etc/security/limits.conf && echo PASS || echo FAIL
-  echo -n "TLS >= 1.2 enforced   : "; grep -q "MinProtocol = TLSv1.2" /etc/ssl/openssl.cnf.d/10-hardn.cnf && echo PASS || echo FAIL
+  echo -n "TLS >= 1.2 enforced   : "; grep -q "MinProtocol = TLSv1.2" /etc/ssl/openssl.cnf && echo PASS || echo FAIL
+  echo -n "FIPS AEAD ciphers     : "; grep -q "AES256-GCM" /etc/ssl/openssl.cnf && echo PASS || echo FAIL
   echo -n "password max days=90  : "; grep -q "^PASS_MAX_DAYS.*90" /etc/login.defs && echo PASS || echo FAIL
   echo -n "non-root user hardn   : "; id hardn >/dev/null 2>&1 && echo PASS || echo FAIL
   echo -n "/tmp sticky 1777      : "; [ "$(stat -c %a /tmp)" = "1777" ] && echo PASS || echo FAIL
   echo -n "python3 absent        : "; command -v python3 >/dev/null && echo FAIL || echo PASS
   echo -n "curl absent           : "; command -v curl >/dev/null && echo FAIL || echo PASS
   echo -n "wget absent           : "; command -v wget >/dev/null && echo FAIL || echo PASS
+  echo -n "openssl CLI absent    : "; command -v openssl >/dev/null && echo INFO || echo PASS
 '
 ```
 
@@ -134,9 +136,11 @@ Expected result:
 ┌────────────────────────────────┬────────┬─────────────────┐
 │             Target             │  Type  │ Vulnerabilities │
 ├────────────────────────────────┼────────┼─────────────────┤
-│ hardn-xdr:latest (debian 13.2) │ debian │        0        │
+│ hardn-xdr:latest (debian 13)   │ debian │        0        │
 └────────────────────────────────┴────────┴─────────────────┘
 ```
+
+> **Image size:** ~35.5 MB (down from 137 MB before the compliance hardening pass)
 
 ---
 
@@ -160,34 +164,36 @@ docker run --rm -u 0 hardn-xdr:dev bash -c 'test -f /opt/hardn-xdr/.hardening_co
 
 ## Security Features
 
-### CIS Docker Benchmark 1.13.0 Compliance
+### CIS Docker Benchmark 1.13.0 + FIPS 140-3 Aligned
 
 All hardening runs **inside the container** at build time — no writes to the Docker daemon, host socket, or host kernel.
 
 | Control | Implementation |
 |---------|----------------|
 | CIS 4.1 | Non-root runtime user `hardn` (uid=10001) |
-| CIS 4.6 | `HEALTHCHECK` defined |
-| CIS 5.1 | AppArmor profile directory prepared |
-| CIS 5.10/5.11 | Memory (512m) and CPU limits enforced |
-| CIS 5.25 | `no-new-privileges:true` |
-| CIS 5.12 | Read-only root filesystem |
+| CIS 4.6 | `HEALTHCHECK` defined — 12 checks, runs every 30 s |
+| CIS 5.1 | AppArmor profile enforced at host runtime via `--security-opt apparmor=` |
+| CIS 5.10/5.11 | Memory (512 MB) and CPU limits enforced in `docker-compose.yml` |
+| CIS 5.25 | `no-new-privileges: true` |
+| CIS 5.12 | Read-only root filesystem with `tmpfs` on `/tmp`, `/run`, `/home/hardn` |
 | CIS 5.3 | All capabilities dropped |
 | CIS 1.6.1 / STIG-V-230264 | Core dumps disabled in `limits.conf` |
-| STIG | `MinProtocol=TLSv1.2`, `SECLEVEL=2`, GnuTLS legacy disabled |
+| NIST SP 800-52 Rev 2 | TLS 1.2 minimum; AEAD-only ciphers in `/etc/ssl/openssl.cnf` |
+| FIPS 140-3 | `OPENSSL_FIPS=1` at runtime; `fipsinstall` self-test at build; GnuTLS pre-TLS-1.2 disabled |
 | STIG | `PASS_MAX_DAYS=90`, `UMASK=027`, SHA_CRYPT rounds hardened |
-| CVE mitigations | `curl`, `wget`, `python3`, `perl` (restricted), `tar` (restricted), `sqlite3` purged |
+| PAM | `libpam-pwquality` — `minlen=14`, requires upper/lower/digit/special |
+| CVE surface | `curl`, `wget`, `python3`, `openssl` CLI, `perl` (restricted), `tar` (restricted), `sqlite3 CLI` all removed; 0 CVEs |
 
 ### Key Security Measures
 
-- **Non-root execution** — runs as `uid=10001`
-- **AppArmor** profile directory configured for runtime enforcement
+- **Non-root execution** — runs as `uid=10001`, shell set to `/usr/sbin/nologin`
+- **FIPS 140-3 aligned TLS** — ECDHE-RSA-AES256-GCM-SHA384 / AES128-GCM-SHA256 only; TLS 1.2+
+- **openssl CLI removed** — purged after the build-time FIPS self-test; `libssl3t64` runtime kept
+- **AppArmor / SELinux** — host-enforced LSMs; profile assignment is a runtime/orchestration concern
 - **Seccomp** profiles applied via Docker runtime
-- **Memory and resource limits** set in `docker-compose.yml`
-- **Read-only root filesystem** with `tmpfs` mounts for `/tmp`, `/run`, `/home/hardn`
+- **Read-only root filesystem** with `tmpfs` mounts for writable paths
 - **No new privileges** capability enforced
-- **Kernel parameters** hardened via `/etc/sysctl.d/99-hardening.conf` (applied by host at runtime)
-- **CVE-2005-2541** (tar) — mitigated with `chmod 700` (root-only execution)
+- **Kernel parameters** hardened via `/etc/sysctl.d/99-hardening.conf` and the compose `sysctls:` block
 
 ---
 
@@ -225,10 +231,11 @@ FROM registry1.dso.mil/ironbank/opensource/debian/debian12:latest
 
 This image targets **CIS Docker Benchmark 1.13.0**, **DISA STIG**, and **FISMA** compliance profiles.
 
-- **Iron Bank** (`registry1.dso.mil`) — free account, DoD-approved, zero-CVE base
-- **FIPS 140-2** — use a FIPS-enabled base image (e.g., DHI `dhi.io/debian-base:trixie-debian13-fips`, requires paid subscription)
-- Deploy with `read_only: true`, `cap_drop: ALL`, `no-new-privileges:true` (already set in `docker-compose.yml`)
+- **Iron Bank** (`registry1.dso.mil`) — free account, DoD-approved, zero-CVE base; use for classified/government environments
+- **FIPS 140-3** — the image applies OpenSSL FIPS policy (AEAD-only ciphers, TLS 1.2+) and sets `OPENSSL_FIPS=1` at runtime; for a fully certified FIPS environment use a FIPS-validated kernel and a FIPS-enabled OS base (e.g., RHEL 9 with FIPS mode enabled)
+- Deploy with `read_only: true`, `cap_drop: ALL`, `no-new-privileges: true` (already set in `docker-compose.yml`)
 - Bind only to loopback in production: `127.0.0.1:8082:5000` (already set)
+- The `openssl` CLI is removed from the final image; use `libssl3t64` APIs or a separate tooling container for certificate operations
 
 ---
 

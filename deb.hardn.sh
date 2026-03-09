@@ -1,85 +1,73 @@
 #!/bin/bash
-# deb.hardn.sh - Container-internal hardening for HARDN-XDR
-# NOTE: This script runs INSIDE the Docker container (at build time or first run).
-# No host-level operations: no sysctl -p, no systemctl, no docker socket/daemon changes.
+# deb.hardn.sh
+#
+# Build-time hardening script for the HARDN-XDR container image.
+# Runs inside the container as root during the Docker build (RUN /usr/local/bin/deb.hardn.sh).
+#
+# Scope: container-internal only.  No writes to the host kernel, Docker daemon,
+# or any socket.  Operations that only make sense on the host (AppArmor module
+# loading, SELinux context setting, docker-daemon.json edits) are intentionally
+# skipped here and handled at the runtime/orchestration layer instead.
 
 set -euo pipefail
 IFS=$'\n\t'
 
 export DEBIAN_FRONTEND=noninteractive
+
+# Detect whether we are running inside a container so we can gate host-only ops
 IN_CONTAINER=false
 if [[ -f /.dockerenv ]] || grep -q "docker\|container" /proc/1/cgroup 2>/dev/null; then
-    echo "Detected container environment - some operations may be limited"
+    echo "Container environment detected — host-level operations will be skipped"
     IN_CONTAINER=true
 fi
 
 ###############################################################################
-# Pre-Flight
+# Pre-flight checks
 ###############################################################################
-# Ensure the script is run as root for hardening operations
+
 if [[ $EUID -ne 0 ]]; then
-  echo "This script requires root privileges for hardening operations."
-  echo "Please run as root or ensure the container runs with appropriate privileges."
+  echo "This script must be run as root — hardening operations require elevated privileges."
   exit 1
 fi
 
-# Set hardening phase flag for CIS compliance checks
+# Signal to sourced scripts that we are in hardening phase, not live runtime
 export HARDENING_PHASE=true
 
 ###############################################################################
-# Install Missing Security Packages
+# Package setup
 ###############################################################################
 
-echo "[+] Installing additional security packages..."
-# Install AppArmor for security profiles
-if ! command -v apparmor_status >/dev/null 2>&1; then
-    echo "  - Installing AppArmor..."
-    apt-get update --quiet && apt-get install -y --no-install-recommends apparmor apparmor-utils
-fi
+echo "[+] Checking security packages..."
 
-# AppArmor profile directory check only - no service start or kernel writes
-echo "  - Configuring AppArmor profile directory..."
-if [[ -d /etc/apparmor.d/ ]]; then
-    echo "  - AppArmor profile directory ready: /etc/apparmor.d/"
-else
-    echo "  - AppArmor profile directory not found (normal in minimal container)"
-fi
+# AppArmor is a host kernel module (LSM). The container cannot load kernel modules
+# or write AppArmor profiles into the kernel during a Docker build. Profile
+# assignment is handled at container start via --security-opt apparmor=<profile>.
+echo "  - AppArmor: managed at the host/runtime layer — no package install needed in image"
 
-# Optionally install UFW and Fail2ban (host-level tools, Python-based). Skip inside containers by default.
+# UFW and Fail2ban are host-facing tools. They depend on Python and netfilter,
+# neither of which should be in the hardened image. Skip in container builds.
 if [[ "${SKIP_HEAVY_SECURITY_TOOLS:-1}" = "0" && "${IN_CONTAINER}" = false ]]; then
-    # Install UFW for firewall management
-    if ! command -v ufw >/dev/null 2>&1; then
-        echo "  - Installing UFW..."
-        apt-get install -y --no-install-recommends ufw
-    fi
-    # Install Fail2ban for intrusion detection
-    if ! command -v fail2ban-server >/dev/null 2>&1; then
-        echo "  - Installing Fail2ban..."
-        apt-get install -y --no-install-recommends fail2ban
-    fi
+    command -v ufw          >/dev/null 2>&1 || apt-get install -y --no-install-recommends ufw
+    command -v fail2ban-server >/dev/null 2>&1 || apt-get install -y --no-install-recommends fail2ban
 else
-    echo "  - Skipping UFW/Fail2ban installation (container environment or SKIP_HEAVY_SECURITY_TOOLS=1)"
+    echo "  - UFW / Fail2ban: skipped (container build or SKIP_HEAVY_SECURITY_TOOLS=1)"
 fi
 
-# Install libpam-pwquality for password quality enforcement
-if ! dpkg -l | grep -q libpam-pwquality; then
-    echo "  - Installing libpam-pwquality..."
-    apt-get install -y --no-install-recommends libpam-pwquality
-fi
+# libpam-pwquality and its configuration (minlen=14, complexity flags) are applied
+# in the Dockerfile's primary package layer — nothing to do here.
+echo "  - libpam-pwquality: already installed and configured in the image layer"
 
-# Clean up package cache to keep image small
 apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 ###############################################################################
-# Execute /sources scripts AFTER Debian packages are installed
+# Run /sources hardening scripts
 ###############################################################################
 
-echo "[+] Debian packages installation complete. Now executing /sources scripts..."
+echo "[+] Package setup complete. Running /sources hardening scripts..."
 
-# Base path for hardening scripts
 SCRIPT_BASE="/sources"
 
-echo "[+] Executing compliance hardening scripts..."
+echo "[+] Compliance scripts..."
 if [[ -f "$SCRIPT_BASE/compliance/openscap-registry.sh" ]]; then
     echo "  - Running OpenSCAP compliance checks..."
     if bash "$SCRIPT_BASE/compliance/openscap-registry.sh"; then
@@ -102,7 +90,7 @@ else
     echo "  - Warning: Cron script not found"
 fi
 
-echo "[+] Executing memory protection scripts..."
+echo "[+] Memory protection scripts..."
 if [[ -f "$SCRIPT_BASE/memory/clamav.sh" ]]; then
     echo "  - Running ClamAV configuration..."
     if bash "$SCRIPT_BASE/memory/clamav.sh"; then
@@ -151,7 +139,7 @@ else
     echo "  - Warning: Memory protection script not found"
 fi
 
-echo "[+] Executing network security scripts..."
+echo "[+] Network security scripts..."
 
 if [[ -f "$SCRIPT_BASE/security/security.sh" ]]; then
     echo "  - Running security configuration..."
@@ -175,18 +163,14 @@ else
     echo "  - Warning: AppArmor script not found"
 fi
 
-if [[ -f "$SCRIPT_BASE/security/selinux.sh" ]]; then
-    echo "  - Running SELinux configuration..."
-    if bash "$SCRIPT_BASE/security/selinux.sh"; then
-        echo "  - SELinux configuration completed successfully"
-    else
-        echo "  - SELinux configuration completed with warnings"
-    fi
-else
-    echo "  - Warning: SELinux script not found"
-fi
+# SELinux context labels are assigned at container runtime via --security-opt label=...
+# or the security_opt key in docker-compose.yml. There is nothing to configure inside
+# the image itself.
+echo "  - SELinux: managed at the host/runtime layer — skipping in-image configuration"
 
-if [[ -f "$SCRIPT_BASE/security/docker-daemon.sh" ]]; then
+# docker-daemon.sh writes changes to the host Docker daemon configuration.
+# That is only meaningful outside a container; skip it during image builds.
+if [[ "${IN_CONTAINER}" = false ]] && [[ -f "$SCRIPT_BASE/security/docker-daemon.sh" ]]; then
     echo "  - Running Docker daemon configuration..."
     if bash "$SCRIPT_BASE/security/docker-daemon.sh"; then
         echo "  - Docker daemon configuration completed successfully"
@@ -194,7 +178,7 @@ if [[ -f "$SCRIPT_BASE/security/docker-daemon.sh" ]]; then
         echo "  - Docker daemon configuration completed with warnings"
     fi
 else
-    echo "  - Warning: Docker daemon script not found"
+    echo "  - Skipping Docker daemon config (host-level concern; not applicable inside image build)"
 fi
 
 if [[ -f "$SCRIPT_BASE/security/image-security.sh" ]]; then
@@ -219,7 +203,7 @@ else
     echo "  - Warning: Tripwire script not found"
 fi
 
-echo "[+] Executing privilege management scripts..."
+echo "[+] Privilege management scripts..."
 if [[ -f "$SCRIPT_BASE/privilege/access.sh" ]]; then
     echo "  - Running privilege access controls..."
     # Source the access script to load functions
@@ -257,7 +241,7 @@ else
     echo "  - Warning: rkhunter script not found"
 fi
 
-echo "[+] Executing security integrity scripts..."
+echo "[+] Security integrity scripts..."
 if [[ -f "$SCRIPT_BASE/security/integrity.sh" ]]; then
     echo "  - Running security integrity checks..."
     if HARDENING_PHASE=true bash "$SCRIPT_BASE/security/integrity.sh"; then
@@ -270,36 +254,34 @@ else
 fi
 
 ###############################################################################
-# DISA STIG Configuration
+# DISA STIG configuration
 ###############################################################################
 
-# STIG Compliance Level Configuration
+# Default to Category I (High severity) checks; override with STIG_COMPLIANCE_LEVEL env var
 export STIG_COMPLIANCE_LEVEL="${STIG_COMPLIANCE_LEVEL:-I}"
 export STIG_COMPLIANCE_CATEGORIES="I II III"
 
-# Docker/Kubernetes STIG Requirements
 export DOCKER_STIG_ENABLED="${DOCKER_STIG_ENABLED:-true}"
 export KUBERNETES_STIG_ENABLED="${KUBERNETES_STIG_ENABLED:-false}"
 
-# Sysdig Secure Integration for STIG Compliance
+# Sysdig Secure is optional; leave disabled unless the operator provides an API key
 export SYSDIG_SECURE_ENABLED="${SYSDIG_SECURE_ENABLED:-false}"
 export SYSDIG_SECURE_ENDPOINT="${SYSDIG_SECURE_ENDPOINT:-}"
 export SYSDIG_SECURE_API_TOKEN="${SYSDIG_SECURE_API_TOKEN:-}"
 
-# STIG Assessment Configuration
 export STIG_ASSESSMENT_MODE="${STIG_ASSESSMENT_MODE:-automated}"
 export STIG_REPORT_FORMAT="${STIG_REPORT_FORMAT:-json}"
 export STIG_CONTINUOUS_MONITORING="${STIG_CONTINUOUS_MONITORING:-true}"
 
-# Secure the script file itself.
+# Protect the script itself from modification by the non-root runtime user
 chmod 700 "${BASH_SOURCE[0]}"
 
 echo "---------------------------------------------"
-echo " HARDN-DOCKER Setup"
+echo " HARDN-XDR Container Setup"
 echo "---------------------------------------------"
 
 ###############################################################################
-# DISA STIG Compliance Execution
+# DISA STIG compliance execution
 ###############################################################################
 
 if [[ "$DOCKER_STIG_ENABLED" = "true" ]] || [[ "$KUBERNETES_STIG_ENABLED" = "true" ]]; then
@@ -339,13 +321,12 @@ fi
 
 echo ""
 echo "---------------------------------------------"
-echo " HARDN-DOCKER Setup Complete"
+echo " HARDN-XDR Container Setup Complete"
 echo "---------------------------------------------"
-echo "All hardening scripts have been executed."
-echo "Review the output above for any warnings or errors."
+echo "Review the output above for any warnings."
 
 ###############################################################################
-# Create File Integrity Baseline
+# File integrity baseline
 ###############################################################################
 
 echo "[+] Creating file integrity baseline..."
@@ -368,7 +349,7 @@ else
 fi
 
 ###############################################################################
-# Final Status
+# Final status banner
 ###############################################################################
 
 echo ""

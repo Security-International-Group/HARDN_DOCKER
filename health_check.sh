@@ -63,11 +63,11 @@ fi
 # pentest
 if [[ -f /etc/login.defs ]]; then
   checks=0; pass=0
-  ((checks++)); grep -Eq '^UMASK\s+0?27\b' /etc/login.defs && ((pass++)) || WARN "UMASK not 027"
-  ((checks++)); grep -Eq '^PASS_MIN_DAYS\s+1\b' /etc/login.defs && ((pass++)) || WARN "PASS_MIN_DAYS != 1"
-  ((checks++)); grep -Eq '^PASS_MAX_DAYS\s+90\b' /etc/login.defs && ((pass++)) || WARN "PASS_MAX_DAYS != 90"
-  ((checks++)); grep -Eq '^PASS_WARN_AGE\s+7\b' /etc/login.defs && ((pass++)) || WARN "PASS_WARN_AGE != 7"
-  ((pass==checks)) && GOOD "login.defs baseline OK ($pass/$checks)" || :
+  (( ++checks )); grep -Eq '^UMASK\s+0?27\b' /etc/login.defs && (( ++pass )) || WARN "UMASK not 027"
+  (( ++checks )); grep -Eq '^PASS_MIN_DAYS\s+1\b' /etc/login.defs && (( ++pass )) || WARN "PASS_MIN_DAYS != 1"
+  (( ++checks )); grep -Eq '^PASS_MAX_DAYS\s+90\b' /etc/login.defs && (( ++pass )) || WARN "PASS_MAX_DAYS != 90"
+  (( ++checks )); grep -Eq '^PASS_WARN_AGE\s+7\b' /etc/login.defs && (( ++pass )) || WARN "PASS_WARN_AGE != 7"
+  (( pass == checks )) && GOOD "login.defs baseline OK ($pass/$checks)" || :
 else
   WARN "/etc/login.defs not found"
 fi
