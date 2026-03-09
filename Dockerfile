@@ -1,10 +1,13 @@
 # syntax=docker/dockerfile:1.7
-# Aliases: 13, 13.1, latest, trixie, trixie-20250908
-FROM debian:stable-slim
+# debian:trixie-slim pinned digest - Debian 13 (Trixie)
+# Refresh: docker pull debian:trixie-slim && docker inspect debian:trixie-slim --format '{{index .RepoDigests 0}}'
+# Production/Gov: swap to Iron Bank: registry1.dso.mil/ironbank/opensource/debian/debian12:latest
+FROM debian:trixie-slim@sha256:1d3c811171a08a5adaa4a163fbafd96b61b87aa871bbc7aa15431ac275d3d430
 ###############################################
 # H A R D N - X D R   D o c k e r   I m a g e #
 ###############################################
 
+USER root
 SHELL ["/bin/bash","-o","pipefail","-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -104,17 +107,21 @@ COPY --chown=root:root --chmod=0755 smoke_test.sh     /usr/local/bin/
 COPY --chown=root:root --chmod=0755 health_check.sh   /usr/local/bin/
 COPY --chown=root:root --chmod=0755 src/sources/      /sources/
 
-# Baseline kernel tunables (runtime-applied if permitted)
+# CIS 1.6.1 / STIG-V-230264: disable core dumps; write sysctl hardening baseline
+# (sysctl -p will no-op in build; values are applied at runtime via --sysctl or host)
 RUN set -eux; \
-    echo "* soft core 0" >> /etc/security/limits.conf; \
-    echo "* hard core 0" >> /etc/security/limits.conf; \
+    printf '* soft core 0\n* hard core 0\n' >> /etc/security/limits.conf; \
     mkdir -p /etc/security; \
     : > /opt/hardn-xdr/.hardening_complete; \
     printf '%s\n' \
-        "### sysctl for Docker" \
+        "### HARDN-XDR sysctl hardening (CIS/STIG)" \
         "kernel.kptr_restrict=2" \
         "kernel.dmesg_restrict=1" \
         "kernel.randomize_va_space=2" \
+        "kernel.yama.ptrace_scope=1" \
+        "fs.suid_dumpable=0" \
+        "fs.protected_fifos=2" \
+        "fs.protected_regular=2" \
         "net.ipv4.conf.all.accept_redirects=0" \
         "net.ipv4.conf.all.accept_source_route=0" \
         "net.ipv4.conf.all.log_martians=1" \
@@ -127,11 +134,13 @@ RUN set -eux; \
         "net.ipv4.tcp_syncookies=1" \
         "net.ipv6.conf.all.accept_redirects=0" \
         "net.ipv6.conf.default.accept_redirects=0" \
-        "fs.protected_fifos=2" \
-        "fs.protected_regular=2" \
-        > /etc/sysctl.d/99-hardening.conf
+        > /etc/sysctl.d/99-hardening.conf; \
+    chmod 0600 /etc/sysctl.d/99-hardening.conf
 
-RUN sysctl -p /etc/sysctl.d/99-hardening.conf || true
+# perl-base and tar are Debian 13 essential packages (dpkg depends on both);
+# they cannot be apt-purged. Restrict to root-only execution to satisfy CIS intent.
+# CVE-2005-2541 (tar) is mitigated by removing world-execute and restricting to root.
+RUN chmod 700 /usr/bin/perl /usr/bin/tar 2>/dev/null || true
 
 # TLS private-key ownership/permissions
 RUN mkdir -p /etc/ssl/private \
@@ -180,27 +189,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 RUN /usr/local/bin/deb.hardn.sh || echo "HARDN setup complete"
 
-# Enable AppArmor after installation
-RUN set -eux; \
-    # Start AppArmor service if available
-    if [ -f /etc/init.d/apparmor ]; then \
-        /etc/init.d/apparmor start || true; \
-    fi; \
-    # Load AppArmor profiles
-    if [ -d /etc/apparmor.d/ ]; then \
-        apparmor_parser -r /etc/apparmor.d/ 2>/dev/null || true; \
-    fi; \
-    # Enable AppArmor in kernel if possible
-    if [ -f /sys/module/apparmor/parameters/enabled ]; then \
-        echo "Y" > /sys/module/apparmor/parameters/enabled 2>/dev/null || true; \
-    fi; \
-    # Load the HARDN AppArmor profile specifically
-    if [ -f /etc/apparmor.d/usr.bin.hardn ]; then \
-        apparmor_parser -r /etc/apparmor.d/usr.bin.hardn 2>/dev/null || true; \
-    fi; \
-    # Verify AppArmor is working
-    apparmor_status 2>/dev/null || echo "AppArmor status check completed"
-
 # Auth & umask defaults
 RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.defs && \
     sed -ri 's/^#?SHA_CRYPT_MAX_ROUNDS.*/SHA_CRYPT_MAX_ROUNDS 50000/' /etc/login.defs && \
@@ -217,132 +205,6 @@ RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && find /usr/share -type f \( -name "*.gz" -o -name "*.bz2" -o -name "*.xz" \) -delete 2>/dev/null || true \
  && rm -rf /usr/share/locale/* /usr/share/i18n/* /usr/share/doc/* /usr/share/man/* 2>/dev/null || true \
  && find /var/log -type f -exec truncate -s 0 {} \; || true
-
-# Create AppArmor profile for the container
-RUN set -eux; \
-    mkdir -p /etc/apparmor.d; \
-    printf '%s\n' \
-        '#include <tunables/global>' \
-        '' \
-        'profile hardn /usr/local/bin/entrypoint.sh {' \
-        '  #include <abstractions/base>' \
-        '  #include <abstractions/nameservice>' \
-        '  #include <abstractions/user-tmp>' \
-        '' \
-        '  # Allow read access to necessary files' \
-        '  /usr/local/bin/entrypoint.sh r,' \
-        '  /usr/local/bin/deb.hardn.sh r,' \
-        '  /usr/local/bin/health_check.sh r,' \
-        '  /usr/local/bin/smoke_test.sh r,' \
-        '  /sources/** r,' \
-        '  /etc/passwd r,' \
-        '  /etc/group r,' \
-        '  /etc/ssl/certs/** r,' \
-        '  /etc/localtime r,' \
-        '  /proc/*/status r,' \
-        '  /proc/version r,' \
-        '  /sys/kernel/mm/transparent_hugepage/enabled r,' \
-        '' \
-        '  # Allow execution of scripts' \
-        '  /usr/local/bin/deb.hardn.sh x,' \
-        '  /usr/local/bin/health_check.sh x,' \
-        '  /usr/local/bin/smoke_test.sh x,' \
-        '  /sources/**/*.sh x,' \
-        '' \
-        '  # Allow network access' \
-        '  network inet stream,' \
-        '  network inet dgram,' \
-        '' \
-        '  # Deny dangerous capabilities' \
-        '  deny capability sys_admin,' \
-        '  deny capability sys_ptrace,' \
-        '  deny capability sys_module,' \
-        '  deny capability dac_override,' \
-        '  deny capability dac_read_search,' \
-        '  deny capability setgid,' \
-        '  deny capability setuid,' \
-        '  deny capability chown,' \
-        '' \
-        '  # Allow basic capabilities needed for operation (excluding chown)' \
-        '  capability fsetid,' \
-        '  capability kill,' \
-        '  capability setpcap,' \
-        '' \
-        '  # Allow writing to allowed directories' \
-        '  /var/log/** w,' \
-        '  /var/lib/hardn/** w,' \
-        '  /tmp/** w,' \
-        '  /opt/hardn-xdr/** w,' \
-        '' \
-        '  # Allow reading from /proc and /sys for monitoring' \
-        '  /proc/** r,' \
-        '  /sys/** r,' \
-        '' \
-        '  # Allow signal handling' \
-        '  signal (send,receive) peer=hardn,' \
-        '}' \
-        > /etc/apparmor.d/usr.bin.hardn
-
-# Create SELinux policy (if SELinux is available)
-RUN set -eux; \
-    if command -v checkmodule >/dev/null 2>&1; then \
-        printf '%s\n' \
-            'policy_module(hardn, 1.0.0)' \
-            '' \
-            'require {' \
-            '    type unconfined_t;' \
-            '    type user_home_t;' \
-            '    class process { transition sigchld sigkill sigstop signull signal };' \
-            '    class file { read write execute open getattr };' \
-            '}' \
-            '' \
-            'type hardn_t;' \
-            'type hardn_exec_t;' \
-            '' \
-            'init_daemon_domain(hardn_t, hardn_exec_t)' \
-            '' \
-            'allow hardn_t self:process { signal sigchld sigkill sigstop signull };' \
-            'allow hardn_t user_home_t:file { read write execute open getattr };' \
-            'allow hardn_t unconfined_t:process signal;' \
-            > /tmp/hardn.te; \
-        checkmodule -M -m -o /tmp/hardn.mod /tmp/hardn.te && \
-        semodule_package -o /tmp/hardn.pp -m /tmp/hardn.mod && \
-        semodule -i /tmp/hardn.pp 2>/dev/null || true; \
-    fi
-
-# ---- Application Stage ----
-# Use socat for simple web serving (no busybox, Python, or expat dependency)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends socat && \
-    # Verify busybox is removed
-    apt-get purge -y busybox busybox-static || true; \
-    apt-get autoremove -y --purge && \
-    rm -rf /var/lib/apt/lists/*
-
-# Create a simple body template and response helper for socat
-RUN mkdir -p /var/www && \
-    cat <<'EOF' > /var/www/body.html
-<html><body><h1>HARDN-XDR Container</h1><p>Hardened Debian 13 container is running successfully.</p></body></html>
-EOF
-RUN cat <<'EOF' > /usr/local/bin/response.sh
-#!/bin/bash
-set -Eeuo pipefail
-body=$(cat /var/www/body.html)
-len=$(printf '%s' "$body" | wc -c)
-printf 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' "$len" "$body"
-EOF
-RUN chmod +x /usr/local/bin/response.sh
-
-# Create a simple web server using socat to serve the templated response
-RUN cat <<'EOF' > /usr/local/bin/simple-server
-#!/bin/bash
-set -Eeuo pipefail
-exec socat TCP-LISTEN:5000,reuseaddr,fork SYSTEM:"/usr/local/bin/response.sh"
-EOF
-RUN chmod +x /usr/local/bin/simple-server
-
-# Document the port the simple-server listens on
-EXPOSE 5000
 
 # THE PURGE
 RUN set -eux; \
@@ -401,4 +263,3 @@ ENV MEMORY_LIMIT=512m \
 
 USER ${HARDN_UID}:${HARDN_GID}
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/usr/local/bin/simple-server"]

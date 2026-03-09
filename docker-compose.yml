@@ -18,7 +18,6 @@ services:
 
     # Security and isolation (CIS 5.1, 5.2, 5.3, 5.25)
     security_opt:
-      - apparmor=usr.bin.hardn
       - no-new-privileges:true
     cap_drop:
       - ALL
