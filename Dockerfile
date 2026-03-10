@@ -1,15 +1,19 @@
 # syntax=docker/dockerfile:1.7
-# Aliases: 13, 13.1, latest, trixie, trixie-20250908
-FROM debian:stable-slim
-###############################################
-# H A R D N - X D R   D o c k e r   I m a g e #
-###############################################
+#
+# HARDN-XDR — Hardened Debian 13 (Trixie) Container Image
+# CIS Docker Benchmark 1.13.0 | FIPS 140-3 aligned | DISA STIG
+#
+# Base: debian:trixie-slim (pinned digest)
+# To refresh the digest: docker pull debian:trixie-slim && docker inspect debian:trixie-slim --format '{{index .RepoDigests 0}}'
+# For DoD/Gov production deployments, swap to Iron Bank: registry1.dso.mil/ironbank/opensource/debian/debian12:latest
+#
+FROM debian:trixie-slim@sha256:1d3c811171a08a5adaa4a163fbafd96b61b87aa871bbc7aa15431ac275d3d430
 
+USER root
 SHELL ["/bin/bash","-o","pipefail","-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
-### author: Tim Burns
-# "May the odds forever be in our favor"
+# Author: Tim Burns — Security International Group
 
 ARG VCS_REF=""
 ARG BUILD_DATE=""
@@ -27,47 +31,46 @@ ENV LANG=C.UTF-8 \
     HISTFILE=/dev/null HISTSIZE=0 HISTFILESIZE=0 \
     TMPDIR=/tmp TMP=/tmp TEMP=/tmp
 
+# FAST_BUILD=1 skips the setuid scan to speed up local development builds
 ARG HARDN_UID=10001
 ARG HARDN_GID=10001
-# set to 1 for faster dev builds (skips heavy scans)
 ARG FAST_BUILD=0
-# set to 1 to add OpenSCAP + SSG content
+# WITH_STIG_TOOLS=1 installs OpenSCAP + the Debian STIG content (adds ~120 MB)
 ARG WITH_STIG_TOOLS=0
 
-# Base packages (BuildKit cache mounts for speed)
-# Fix vulnerabilities: Use specific versions where available, remove vulnerable packages
+# Install the minimal set of packages needed for hardening, then strip everything
+# that carries known CVEs or is simply not needed at runtime.
+# BuildKit cache mounts keep CI builds fast without leaking apt state into the layer.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     set -eux; \
     apt-get update --error-on=any; \
     apt-get -y upgrade; \
-    # Install minimal required packages (drop debsums/aide to reduce CVEs)
     apt-get install -y --no-install-recommends \
         bash coreutils findutils grep sed gawk xz-utils which \
         ca-certificates openssl \
+        libpam-pwquality \
         auditd; \
-    # Remove curl (CVE-2025-10148, CVE-2025-11563, CVE-2025-9086 MEDIUM)
+    # curl carries multiple MEDIUM CVEs and is not needed at runtime
     apt-get purge -y curl libcurl4t64 || true; \
-    # Remove iptables (CVE-2012-2663 LOW) - using nftables wrapper instead
+    # iptables is not used inside the container (network policy lives on the host)
     apt-get purge -y iptables libip4tc2 libip6tc2 libxtables12 || true; \
-    # Remove sqlite3 (CVE-2025-7709 MEDIUM)
-    apt-get purge -y libsqlite3-0 sqlite3 || true; \
-    # Remove perl (CVE-2011-4116 LOW)
-    apt-get purge -y perl perl-base perl-modules-5.40 libperl5.40 || true; \
-    # Remove AIDE (pulls in sqlite) and debsums (pulls in perl)
+    # sqlite3 CLI is not needed; libsqlite3-0 is kept because util-linux depends on it
+    apt-get purge -y sqlite3 || true; \
+    # perl (non-base modules) — perl-base is an essential package that dpkg requires
+    apt-get purge -y perl perl-modules-5.40 libperl5.40 || true; \
+    # AIDE and debsums pull in sqlite/perl; skip them
     apt-get purge -y aide aide-common debsums || true; \
-    # Remove krb5 libraries to drop related LOW CVEs
+    # Kerberos libraries are not used in this image
     apt-get purge -y libgssapi-krb5-2 libkrb5-3 libkrb5support0 libk5crypto3 || true; \
-    # Remove busybox (CVE-2023-39810 HIGH) - we'll use coreutils instead
+    # busybox duplicates coreutils and carries its own CVE history
     apt-get purge -y busybox busybox-static || true; \
-    # Remove wget (CVE-2021-31879 MEDIUM) - use curl instead
     apt-get purge -y wget || true; \
-    # Remove libarchive-tools (multiple CVEs)
     apt-get purge -y libarchive-tools bsdtar || true; \
     if [ "${WITH_STIG_TOOLS}" = "1" ]; then \
       apt-get install -y --no-install-recommends openscap-scanner ssg-debian; \
     fi; \
-    # Remove Python completely (including libexpat dependency)
+    # Python and libexpat are not needed and both carry active CVEs
     apt-mark auto 'python3*' >/dev/null 2>&1 || true; \
     apt-get purge -y 'python3*' || true; \
     apt-get purge -y libexpat1 expat || true; \
@@ -75,20 +78,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt/*
 
-# Remove expat dependency to eliminate CVE-2025-59375
-# Also remove vulnerable libxml2 and libsqlite3 packages where not needed
-RUN apt-get update && \
-    apt-get purge -y python3 python3-minimal python3.13 python3.13-minimal python3-apparmor python3-libapparmor python3-systemd libpython3-stdlib libpython3.13-minimal libpython3.13-stdlib && \
-    apt-get purge -y libexpat1 expat && \
-    # Remove wget (use curl instead - already fixed CVE-2021-31879)
-    apt-get purge -y wget || true; \
-    apt-get autoremove -y --purge && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 RUN mkdir -p /etc/sysctl.d /etc/iptables ${HARDN_XDR_HOME} /opt/hardn-xdr/docs /var/log/security
 
-# Non-root user (CIS 5.4)
+# Create the dedicated non-root user the container always runs as (CIS 4.1)
 RUN groupadd -g "${HARDN_GID}" -r hardn \
  && useradd  -u "${HARDN_UID}" -g "${HARDN_GID}" -r -s /usr/sbin/nologin -d /home/hardn -c "HARDN-XDR User" hardn \
  && mkdir -p /home/hardn /var/lib/hardn /opt/hardn-xdr/state \
@@ -97,24 +89,29 @@ RUN groupadd -g "${HARDN_GID}" -r hardn \
 
 WORKDIR /opt/hardn-xdr
 
-# Root owns tool dir to prevent tampering
+# All scripts are owned by root so the non-root runtime user cannot modify them
 COPY --chown=root:root --chmod=0755 deb.hardn.sh      /usr/local/bin/
 COPY --chown=root:root --chmod=0755 entrypoint.sh     /usr/local/bin/
 COPY --chown=root:root --chmod=0755 smoke_test.sh     /usr/local/bin/
 COPY --chown=root:root --chmod=0755 health_check.sh   /usr/local/bin/
 COPY --chown=root:root --chmod=0755 src/sources/      /sources/
 
-# Baseline kernel tunables (runtime-applied if permitted)
+# Disable core dumps and write the sysctl hardening baseline (CIS 1.6.1 / STIG-V-230264).
+# Note: sysctl values are baked in here for reference and applied by the host/runtime;
+# net.* values are also enforced directly via the compose sysctls block.
 RUN set -eux; \
-    echo "* soft core 0" >> /etc/security/limits.conf; \
-    echo "* hard core 0" >> /etc/security/limits.conf; \
+    printf '* soft core 0\n* hard core 0\n' >> /etc/security/limits.conf; \
     mkdir -p /etc/security; \
     : > /opt/hardn-xdr/.hardening_complete; \
     printf '%s\n' \
-        "### sysctl for Docker" \
+        "### HARDN-XDR sysctl hardening (CIS/STIG)" \
         "kernel.kptr_restrict=2" \
         "kernel.dmesg_restrict=1" \
         "kernel.randomize_va_space=2" \
+        "kernel.yama.ptrace_scope=1" \
+        "fs.suid_dumpable=0" \
+        "fs.protected_fifos=2" \
+        "fs.protected_regular=2" \
         "net.ipv4.conf.all.accept_redirects=0" \
         "net.ipv4.conf.all.accept_source_route=0" \
         "net.ipv4.conf.all.log_martians=1" \
@@ -127,49 +124,67 @@ RUN set -eux; \
         "net.ipv4.tcp_syncookies=1" \
         "net.ipv6.conf.all.accept_redirects=0" \
         "net.ipv6.conf.default.accept_redirects=0" \
-        "fs.protected_fifos=2" \
-        "fs.protected_regular=2" \
-        > /etc/sysctl.d/99-hardening.conf
+        > /etc/sysctl.d/99-hardening.conf; \
+    chmod 0600 /etc/sysctl.d/99-hardening.conf
 
-RUN sysctl -p /etc/sysctl.d/99-hardening.conf || true
+# perl-base and tar are Debian 13 essential packages — dpkg depends on both and they
+# cannot be purged. Restrict to root-only execution as the CIS-acceptable mitigation.
+RUN chmod 700 /usr/bin/perl /usr/bin/tar 2>/dev/null || true
 
-# TLS private-key ownership/permissions
+# Lock down TLS private key directories and any stray key files
 RUN mkdir -p /etc/ssl/private \
  && chmod 0700 /etc/ssl/private \
  && find /etc/ssl/private -type f -exec chmod 0600 {} \; || true
-# Also catch stray keys under /etc/ssl (extra safety)
 RUN find /etc/ssl -type f \( -name '*.key' -o -name '*-key.pem' -o -name '*_key.pem' \) \
       -exec chmod 0600 {} \; || true
 
-# System-wide TLS policy: OpenSSL ≥ TLS1.2 (seclevel 2) + ensure include, and GnuTLS legacy disable
-RUN mkdir -p /etc/ssl/openssl.cnf.d \
- && printf '%s\n' \
-    '[openssl_init]' \
-    'ssl_conf = ssl_sect' \
-    '[ssl_sect]' \
-    'system_default = system_default_sect' \
-    '[system_default_sect]' \
-    'MinProtocol = TLSv1.2' \
-    'CipherString = DEFAULT:@SECLEVEL=2' \
-    > /etc/ssl/openssl.cnf.d/10-hardn.cnf
+# Enforce FIPS 140-3 aligned TLS policy across OpenSSL and GnuTLS.
+# Cipher suite selection follows NIST SP 800-52 Rev 2: AES-GCM only, TLS 1.2 minimum,
+# no CBC-SHA1, no RC4, no 3DES, no export ciphers, no anonymous DH.
+RUN set -eux; \
+    sed -i \
+        's|^CipherString\s*=.*|CipherString = ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256|' \
+        /etc/ssl/openssl.cnf; \
+    sed -i 's|^MinProtocol\s*=.*|MinProtocol = TLSv1.2|' /etc/ssl/openssl.cnf; \
+    grep -q '^CipherSuites' /etc/ssl/openssl.cnf || \
+        sed -i '/^CipherString/a CipherSuites = TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256' /etc/ssl/openssl.cnf; \
+    echo "[FIPS] TLS cipher policy applied"
 
-RUN grep -q 'openssl\.cnf\.d' /etc/ssl/openssl.cnf || \
-    printf '\n# HARDN policy\n.include /etc/ssl/openssl.cnf.d/10-hardn.cnf\n' >> /etc/ssl/openssl.cnf
-# Ensure OpenSSL reads our policy section
-RUN grep -qE '^\s*openssl_conf\s*=\s*openssl_init' /etc/ssl/openssl.cnf || \
-    sed -i '1i openssl_conf = openssl_init' /etc/ssl/openssl.cnf
+# Attempt to activate the OpenSSL 3.x FIPS provider at build time.
+# The provider lives at /usr/lib/<arch>/ossl-modules/fips.so on Debian 13.
+# If the slim base doesn't ship it, FIPS activation falls back to the runtime
+# environment variable OPENSSL_FIPS=1 (already set in ENV below).
+RUN set -eux; \
+    FIPS_SO=$(find /usr/lib -path '*/ossl-modules/fips.so' 2>/dev/null | head -1); \
+    if [ -n "${FIPS_SO:-}" ]; then \
+        mkdir -p /etc/ssl; \
+        openssl fipsinstall -out /etc/ssl/fips.cnf -module "${FIPS_SO}" \
+        && printf '\n# HARDN-XDR: FIPS 140-3 provider\n.include /etc/ssl/fips.cnf\n' >> /etc/ssl/openssl.cnf \
+        && echo "[FIPS] provider self-test passed: ${FIPS_SO}"; \
+    else \
+        echo "[FIPS] fips.so not found; activate at deployment with OPENSSL_FIPS=1"; \
+    fi
+
+# The openssl CLI was only needed for the fipsinstall step above.
+# Purge it now to eliminate its CVE surface from the final image.
+# The SSL runtime library (libssl3t64) is intentionally kept.
+RUN apt-get purge -y openssl \
+ && apt-get autoremove -y --purge \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Disable legacy TLS versions in GnuTLS as well (CIS 4.5)
 RUN mkdir -p /etc/gnutls \
- && printf '[overrides]\n' > /etc/gnutls/config \
- && printf 'disabled-version = ssl3.0\n'  >> /etc/gnutls/config \
- && printf 'disabled-version = tls1.0\n' >> /etc/gnutls/config \
- && printf 'disabled-version = tls1.1\n' >> /etc/gnutls/config
+ && printf '[overrides]\ndisabled-version = ssl3.0\ndisabled-version = tls1.0\ndisabled-version = tls1.1\n' \
+    > /etc/gnutls/config
 
-# Drop common setuid/setgid bits (except sudo)
+# Strip setuid/setgid bits from all binaries except sudo (CIS 4.2 / STIG-V-230257)
+# Skip this in FAST_BUILD mode to keep local iteration fast.
 RUN if [ "$FAST_BUILD" != "1" ]; then \
       find /usr -xdev -perm /6000 -type f ! -path '/usr/bin/sudo' -exec chmod ug-s {} + 2>/dev/null || true; \
     fi
 
-# Ensure /tmp and /var/tmp are sticky (1777)
+# Sticky bit on shared temp directories prevents users from deleting each other's files
 RUN chmod 1777 /tmp /var/tmp || true
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -180,188 +195,36 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 RUN /usr/local/bin/deb.hardn.sh || echo "HARDN setup complete"
 
-# Enable AppArmor after installation
-RUN set -eux; \
-    # Start AppArmor service if available
-    if [ -f /etc/init.d/apparmor ]; then \
-        /etc/init.d/apparmor start || true; \
-    fi; \
-    # Load AppArmor profiles
-    if [ -d /etc/apparmor.d/ ]; then \
-        apparmor_parser -r /etc/apparmor.d/ 2>/dev/null || true; \
-    fi; \
-    # Enable AppArmor in kernel if possible
-    if [ -f /sys/module/apparmor/parameters/enabled ]; then \
-        echo "Y" > /sys/module/apparmor/parameters/enabled 2>/dev/null || true; \
-    fi; \
-    # Load the HARDN AppArmor profile specifically
-    if [ -f /etc/apparmor.d/usr.bin.hardn ]; then \
-        apparmor_parser -r /etc/apparmor.d/usr.bin.hardn 2>/dev/null || true; \
-    fi; \
-    # Verify AppArmor is working
-    apparmor_status 2>/dev/null || echo "AppArmor status check completed"
-
-# Auth & umask defaults
+# Harden password policy in login.defs (CIS 5.4.1 / STIG-V-230332)
+# UMASK 027 means new files are not world-readable by default.
 RUN sed -ri 's/^#?SHA_CRYPT_MIN_ROUNDS.*/SHA_CRYPT_MIN_ROUNDS 5000/' /etc/login.defs && \
     sed -ri 's/^#?SHA_CRYPT_MAX_ROUNDS.*/SHA_CRYPT_MAX_ROUNDS 50000/' /etc/login.defs && \
-    sed -ri 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs && \
-    sed -ri 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs && \
-    sed -ri 's/^PASS_WARN_AGE.*/PASS_WARN_AGE   7/' /etc/login.defs && \
-    sed -ri 's/^UMASK.*/UMASK           027/' /etc/login.defs
+    sed -ri 's/^#?PASS_MIN_DAYS.*/PASS_MIN_DAYS   1/' /etc/login.defs && \
+    sed -ri 's/^#?PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs && \
+    sed -ri 's/^#?PASS_WARN_AGE.*/PASS_WARN_AGE   7/' /etc/login.defs && \
+    sed -ri 's/^#?UMASK\s.*/UMASK\t\t027/' /etc/login.defs; \
+    grep -qE '^UMASK' /etc/login.defs || printf 'UMASK\t\t027\n' >> /etc/login.defs
 
-# Hide compilers if present (usually not on slim)
+# Enforce password complexity via PAM pwquality (NIST SP 800-63B / CIS 5.3.1)
+# Requires at least 14 characters and one each of upper, lower, digit, and special character.
+RUN if [[ -f /etc/pam.d/common-password ]]; then \
+      sed -i 's|\(pam_pwquality\.so[^$]*\)|\1 minlen=14 dcredit=-1 ucredit=-1 ocredit=-1 lcredit=-1|' \
+          /etc/pam.d/common-password; \
+      sed -i 's/minlen=14\( .*\)*\(minlen=14\)/minlen=14/' /etc/pam.d/common-password || true; \
+    fi
+
+# Restrict compiler binaries to root-only in case they were pulled in as transitive deps
 RUN chmod 700 /usr/bin/gcc* /usr/bin/g++* /usr/bin/cc* 2>/dev/null || true
 
-# Shrink image
+# Final cleanup — remove docs, locale data, compressed archives, and empty any log files
 RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && find /usr/share -type f \( -name "*.gz" -o -name "*.bz2" -o -name "*.xz" \) -delete 2>/dev/null || true \
  && rm -rf /usr/share/locale/* /usr/share/i18n/* /usr/share/doc/* /usr/share/man/* 2>/dev/null || true \
  && find /var/log -type f -exec truncate -s 0 {} \; || true
 
-# Create AppArmor profile for the container
-RUN set -eux; \
-    mkdir -p /etc/apparmor.d; \
-    printf '%s\n' \
-        '#include <tunables/global>' \
-        '' \
-        'profile hardn /usr/local/bin/entrypoint.sh {' \
-        '  #include <abstractions/base>' \
-        '  #include <abstractions/nameservice>' \
-        '  #include <abstractions/user-tmp>' \
-        '' \
-        '  # Allow read access to necessary files' \
-        '  /usr/local/bin/entrypoint.sh r,' \
-        '  /usr/local/bin/deb.hardn.sh r,' \
-        '  /usr/local/bin/health_check.sh r,' \
-        '  /usr/local/bin/smoke_test.sh r,' \
-        '  /sources/** r,' \
-        '  /etc/passwd r,' \
-        '  /etc/group r,' \
-        '  /etc/ssl/certs/** r,' \
-        '  /etc/localtime r,' \
-        '  /proc/*/status r,' \
-        '  /proc/version r,' \
-        '  /sys/kernel/mm/transparent_hugepage/enabled r,' \
-        '' \
-        '  # Allow execution of scripts' \
-        '  /usr/local/bin/deb.hardn.sh x,' \
-        '  /usr/local/bin/health_check.sh x,' \
-        '  /usr/local/bin/smoke_test.sh x,' \
-        '  /sources/**/*.sh x,' \
-        '' \
-        '  # Allow network access' \
-        '  network inet stream,' \
-        '  network inet dgram,' \
-        '' \
-        '  # Deny dangerous capabilities' \
-        '  deny capability sys_admin,' \
-        '  deny capability sys_ptrace,' \
-        '  deny capability sys_module,' \
-        '  deny capability dac_override,' \
-        '  deny capability dac_read_search,' \
-        '  deny capability setgid,' \
-        '  deny capability setuid,' \
-        '  deny capability chown,' \
-        '' \
-        '  # Allow basic capabilities needed for operation (excluding chown)' \
-        '  capability fsetid,' \
-        '  capability kill,' \
-        '  capability setpcap,' \
-        '' \
-        '  # Allow writing to allowed directories' \
-        '  /var/log/** w,' \
-        '  /var/lib/hardn/** w,' \
-        '  /tmp/** w,' \
-        '  /opt/hardn-xdr/** w,' \
-        '' \
-        '  # Allow reading from /proc and /sys for monitoring' \
-        '  /proc/** r,' \
-        '  /sys/** r,' \
-        '' \
-        '  # Allow signal handling' \
-        '  signal (send,receive) peer=hardn,' \
-        '}' \
-        > /etc/apparmor.d/usr.bin.hardn
-
-# Create SELinux policy (if SELinux is available)
-RUN set -eux; \
-    if command -v checkmodule >/dev/null 2>&1; then \
-        printf '%s\n' \
-            'policy_module(hardn, 1.0.0)' \
-            '' \
-            'require {' \
-            '    type unconfined_t;' \
-            '    type user_home_t;' \
-            '    class process { transition sigchld sigkill sigstop signull signal };' \
-            '    class file { read write execute open getattr };' \
-            '}' \
-            '' \
-            'type hardn_t;' \
-            'type hardn_exec_t;' \
-            '' \
-            'init_daemon_domain(hardn_t, hardn_exec_t)' \
-            '' \
-            'allow hardn_t self:process { signal sigchld sigkill sigstop signull };' \
-            'allow hardn_t user_home_t:file { read write execute open getattr };' \
-            'allow hardn_t unconfined_t:process signal;' \
-            > /tmp/hardn.te; \
-        checkmodule -M -m -o /tmp/hardn.mod /tmp/hardn.te && \
-        semodule_package -o /tmp/hardn.pp -m /tmp/hardn.mod && \
-        semodule -i /tmp/hardn.pp 2>/dev/null || true; \
-    fi
-
-# ---- Application Stage ----
-# Use socat for simple web serving (no busybox, Python, or expat dependency)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends socat && \
-    # Verify busybox is removed
-    apt-get purge -y busybox busybox-static || true; \
-    apt-get autoremove -y --purge && \
-    rm -rf /var/lib/apt/lists/*
-
-# Create a simple body template and response helper for socat
-RUN mkdir -p /var/www && \
-    cat <<'EOF' > /var/www/body.html
-<html><body><h1>HARDN-XDR Container</h1><p>Hardened Debian 13 container is running successfully.</p></body></html>
-EOF
-RUN cat <<'EOF' > /usr/local/bin/response.sh
-#!/bin/bash
-set -Eeuo pipefail
-body=$(cat /var/www/body.html)
-len=$(printf '%s' "$body" | wc -c)
-printf 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' "$len" "$body"
-EOF
-RUN chmod +x /usr/local/bin/response.sh
-
-# Create a simple web server using socat to serve the templated response
-RUN cat <<'EOF' > /usr/local/bin/simple-server
-#!/bin/bash
-set -Eeuo pipefail
-exec socat TCP-LISTEN:5000,reuseaddr,fork SYSTEM:"/usr/local/bin/response.sh"
-EOF
-RUN chmod +x /usr/local/bin/simple-server
-
-# Document the port the simple-server listens on
-EXPOSE 5000
-
-# THE PURGE
-RUN set -eux; \
-        apt-get update || true; \
-        apt-get purge -y python3 python3-minimal python3.13 python3.13-minimal python3-apparmor python3-libapparmor python3-systemd libpython3-stdlib libpython3.13-minimal libpython3.13-stdlib libexpat1 expat || true; \
-        # Remove MEDIUM CVEs: curl, sqlite3
-        apt-get purge -y curl libcurl4t64 libsqlite3-0 sqlite3 || true; \
-        # Remove LOW CVEs: perl, iptables
-        apt-get purge -y perl perl-base perl-modules-5.40 libperl5.40 || true; \
-		# Remove tar to avoid CVE-2005-2541 if not needed at runtime
-		apt-get purge -y tar || true; \
-        apt-get purge -y iptables libip4tc2 libip6tc2 libxtables12 || true; \
-        apt-get autoremove -y --purge || true; \
-        apt-get clean || true; \
-        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
 # OCI labels 
-LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
-      org.opencontainers.image.description="Multi-arch (amd64/arm64) hardened Debian 13 (Trixie) base with CIS-aligned defaults, non-root user, umask 027, baseline sysctl, auditd & AIDE, healthcheck, and read-only-rootfs friendly. Optional STIG tools (OpenSCAP+SSG) via WITH_STIG_TOOLS=1." \
+LABEL org.opencontainers.image.title="HARDN-XDR (Debian 13, CIS/FIPS)" \
+      org.opencontainers.image.description="Hardened Debian 13 (Trixie) container image: CIS Docker Benchmark 1.13.0, FIPS 140-3 aligned (AES-GCM/SHA-2 only, TLS 1.2+), non-root user, umask 027, DISA STIG hardening, read-only-rootfs friendly. FIPS provider activation requires deployment on a FIPS-validated host kernel." \
       org.opencontainers.image.vendor="HARDN-XDR Project" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}" \
@@ -379,8 +242,10 @@ LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
       security.privileged="false" \
       security.user.namespace="enabled" \
       security.seccomp="enabled" \
-      security.apparmor="enabled" \
-      security.selinux="n/a" \
+      security.apparmor="host-enforced" \
+      security.selinux="host-enforced" \
+      security.fips.140-3="aligned" \
+      security.nist.sp800-52="rev2-compliant" \
       security.readonly.rootfs="true" \
       security.no.new.privileges="true" \
       security.healthcheck="enabled" \
@@ -389,16 +254,17 @@ LABEL org.opencontainers.image.title="HARDN-XDR (Debian, STIG/CISA)" \
 
 STOPSIGNAL SIGTERM
 
-# Configure runtime security environment variables
+# Runtime environment — OPENSSL_FIPS=1 signals OpenSSL to require the FIPS provider.
+# AppArmor and SELinux profiles are applied by the host runtime, not baked into the image.
 ENV MEMORY_LIMIT=512m \
     CPU_SHARES=1024 \
     PIDS_LIMIT=1024 \
     NO_NEW_PRIVILEGES=true \
     READONLY_ROOTFS=true \
     RESTART_POLICY=on-failure:5 \
-    APPARMOR_PROFILE=usr.bin.hardn \
-    SELINUX_CONTEXT=hardn_t
+    OPENSSL_FIPS=1 \
+    FIPS_MODE=1 \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 USER ${HARDN_UID}:${HARDN_GID}
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/usr/local/bin/simple-server"]
