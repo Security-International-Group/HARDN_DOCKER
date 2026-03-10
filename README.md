@@ -2,152 +2,241 @@
 ![hardn](src/sources/hardn_docker.png)
 
 <p align="center">
- 
-<p align="center">
-	<strong>Security International Group - Hardened Docker Image</strong><br>
-	A security-hardened Debian-based Docker image that can host applications while maintaining CIS compliance and security best practices.
-</p>
 
+<p align="center">
+	<strong>Security International Group — Hardened Docker Image</strong><br>
+	A security-hardened Debian 13 (Trixie) container image built for CIS Docker Benchmark 1.13.0, DISA STIG, and FIPS 140-3 aligned compliance. All hardening runs inside the container — no host daemon writes, no socket access, no kernel module loading.
+</p>
 
 <p align="center">
 	<a href="https://hub.docker.com/r/tburns0321/hardn-docker"><img src="https://img.shields.io/docker/pulls/tburns0321/hardn-docker" alt="Docker Pulls" /></a>
 	<a href="https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml"><img src="https://github.com/Security-International-Group/HARDN_DOCKER/actions/workflows/trivy.yml/badge.svg" alt="trivy" /></a>
-	<a href="https://www.debian.org/"><img src="https://img.shields.io/badge/debian-13.2-red?logo=debian&logoColor=white" alt="Debian Base" /></a>
+	<a href="https://www.debian.org/"><img src="https://img.shields.io/badge/debian-13%20trixie-red?logo=debian&logoColor=white" alt="Debian Base" /></a>
 	<a href="https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER/"><img src="https://hits.sh/github.com/Security-International-Group/HARDN_DOCKER.svg?style=flat&label=views" alt="views" /></a>
 </p>
 
+---
+
 ## Quick Start
 
-### 1. Clone 
+### 1. Clone and build
+
 ```bash
 git clone https://github.com/Security-International-Group/HARDN_DOCKER.git
 cd HARDN_DOCKER
-```
-
-### 2. Run the Container and test
-```bash
 docker compose build --no-cache
-docker compose up -d
-curl http://localhost:8082
 ```
 
-### 3. Troubleshooting
-- Here are the troubleshooting commands to navigate any build or run errors.
+### 2. Run
+
 ```bash
-docker compose logs --tail 100
-docker compose exec hardn /usr/local/bin/deb.hardn.sh --remediate-all
+docker compose up -d
+docker compose ps          # confirm hardn_docker is Up (healthy)
+docker compose logs -f     # watch build-time hardening output
 ```
+
+### 3. Stop
+
+```bash
+docker compose down
+```
+
+---
+
+## Web Dashboard
+
+The container runs a Flask compliance dashboard on port **5000** inside the container, mapped to **`http://localhost:8082`** on the host (see `docker-compose.yml`).
+
+### Endpoints
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:8082/` | HTML compliance report — shows CIS check results with the HARDN-XDR branding |
+| `http://localhost:8082/health` | JSON health probe — `{"status": "healthy"}` |
+| `http://localhost:8082/compliance` | JSON CIS benchmark results |
+
+### View in browser
+
+```bash
+# After docker compose up -d:
+start http://localhost:8082          # Windows
+open  http://localhost:8082          # macOS
+xdg-open http://localhost:8082       # Linux
+```
+
+Or with curl:
+
+```bash
+curl http://localhost:8082/health
+curl http://localhost:8082/compliance | python3 -m json.tool
+```
+
+> **Note**: The Flask app in `src/app.py` requires Python 3 and Flask. Because the hardened base image purges `python3` to eliminate CVEs, deploy the Flask app in an extension layer:
+> ```dockerfile
+> FROM hardn-xdr:latest
+> RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-flask && rm -rf /var/lib/apt/lists/*
+> COPY src/app.py /opt/hardn-xdr/app.py
+> CMD ["python3", "/opt/hardn-xdr/app.py"]
+> ```
+
+---
+
+## Compliance Testing
+
+### CIS Health Check (runs automatically every 30s)
+
+```bash
+# Run the built-in health check manually:
+docker compose exec hardn-xdr /usr/local/bin/health_check.sh
+```
+
+This checks: non-root user, AppArmor status, privilege escalation protection, core dump settings, audit rules, SSH hardening, and key sysctl values.
+
+### Full CIS Smoke Test
+
+```bash
+# Run the full CIS Docker Benchmark 1.13.0 smoke test:
+docker compose exec hardn-xdr /usr/local/bin/smoke_test.sh
+```
+
+Output shows `[PASS]`, `[WARN]`, `[INFO]`, and `[FAIL]` results across all CIS categories.
+
+### Quick in-container compliance check
+
+```bash
+docker run --rm -u 0 hardn-xdr:latest bash -c '
+  echo "--- CIS / FIPS Controls ---"
+  echo -n "sysctl hardening file : "; test -f /etc/sysctl.d/99-hardening.conf && echo PASS || echo FAIL
+  echo -n "core dumps disabled   : "; grep -q "hard core 0" /etc/security/limits.conf && echo PASS || echo FAIL
+  echo -n "TLS >= 1.2 enforced   : "; grep -q "MinProtocol = TLSv1.2" /etc/ssl/openssl.cnf && echo PASS || echo FAIL
+  echo -n "FIPS AEAD ciphers     : "; grep -q "AES256-GCM" /etc/ssl/openssl.cnf && echo PASS || echo FAIL
+  echo -n "password max days=90  : "; grep -q "^PASS_MAX_DAYS.*90" /etc/login.defs && echo PASS || echo FAIL
+  echo -n "non-root user hardn   : "; id hardn >/dev/null 2>&1 && echo PASS || echo FAIL
+  echo -n "/tmp sticky 1777      : "; [ "$(stat -c %a /tmp)" = "1777" ] && echo PASS || echo FAIL
+  echo -n "python3 absent        : "; command -v python3 >/dev/null && echo FAIL || echo PASS
+  echo -n "curl absent           : "; command -v curl >/dev/null && echo FAIL || echo PASS
+  echo -n "wget absent           : "; command -v wget >/dev/null && echo FAIL || echo PASS
+  echo -n "openssl CLI absent    : "; command -v openssl >/dev/null && echo INFO || echo PASS
+'
+```
+
+### Vulnerability scan with Trivy
+
+```bash
+# Scan for HIGH/CRITICAL CVEs
+trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln
+
+# Full scan
+trivy image hardn-xdr:latest --scanners vuln
+```
+
+Expected result:
+
+```
+┌────────────────────────────────┬────────┬─────────────────┐
+│             Target             │  Type  │ Vulnerabilities │
+├────────────────────────────────┼────────┼─────────────────┤
+│ hardn-xdr:latest (debian 13)   │ debian │        0        │
+└────────────────────────────────┴────────┴─────────────────┘
+```
+
+> **Image size:** ~35.5 MB (down from 137 MB before the compliance hardening pass)
+
+---
+
+## Troubleshooting
+
+```bash
+# View container logs
+docker compose logs --tail 100
+
+# Check container health status
+docker inspect hardn_docker --format '{{.State.Health.Status}}'
+
+# Open a shell as root (dev only)
+docker run --rm -it -u 0 hardn-xdr:dev bash
+
+# Check hardening completed during build
+docker run --rm -u 0 hardn-xdr:dev bash -c 'test -f /opt/hardn-xdr/.hardening_complete && echo "hardening_complete" || echo "not_found"'
+```
+
+---
 
 ## Security Features
 
-### CIS Docker Benchmark Compliance
-- **Automated Security Hardening**: CIS Docker 1.13.0 compliant configuration
-- **Docker Bench Security Integration**: Built-in security auditing and remediation
-- **Host-Level Security**: Scripts for Docker daemon and host security configuration
+### CIS Docker Benchmark 1.13.0 + FIPS 140-3 Aligned
+
+All hardening runs **inside the container** at build time — no writes to the Docker daemon, host socket, or host kernel.
+
+| Control | Implementation |
+|---------|----------------|
+| CIS 4.1 | Non-root runtime user `hardn` (uid=10001) |
+| CIS 4.6 | `HEALTHCHECK` defined — 12 checks, runs every 30 s |
+| CIS 5.1 | AppArmor profile enforced at host runtime via `--security-opt apparmor=` |
+| CIS 5.10/5.11 | Memory (512 MB) and CPU limits enforced in `docker-compose.yml` |
+| CIS 5.25 | `no-new-privileges: true` |
+| CIS 5.12 | Read-only root filesystem with `tmpfs` on `/tmp`, `/run`, `/home/hardn` |
+| CIS 5.3 | All capabilities dropped |
+| CIS 1.6.1 / STIG-V-230264 | Core dumps disabled in `limits.conf` |
+| NIST SP 800-52 Rev 2 | TLS 1.2 minimum; AEAD-only ciphers in `/etc/ssl/openssl.cnf` |
+| FIPS 140-3 | `OPENSSL_FIPS=1` at runtime; `fipsinstall` self-test at build; GnuTLS pre-TLS-1.2 disabled |
+| STIG | `PASS_MAX_DAYS=90`, `UMASK=027`, SHA_CRYPT rounds hardened |
+| PAM | `libpam-pwquality` — `minlen=14`, requires upper/lower/digit/special |
+| CVE surface | `curl`, `wget`, `python3`, `openssl` CLI, `perl` (restricted), `tar` (restricted), `sqlite3 CLI` all removed; 0 CVEs |
 
 ### Key Security Measures
--  **Non-root execution** (runs as uid=10001)
--  **AppArmor profiles** for container security
--  **Seccomp profiles** for syscall restrictions
--  **Memory and resource limits** enforced
--  **Read-only root filesystem** with tmpfs mounts
--  **TLS encryption** for Docker daemon
--  **Audit logging** for Docker events
--  **No new privileges** capability
--  **User namespace remapping** enabled
 
-### Hardening Scripts
-The image includes comprehensive hardening scripts in `/sources/`:
-- `compliance/` - OpenSCAP and cron-based compliance monitoring
-- `memory/` - Memory protection and partition management (`part.sh`)
-- `network/` - Network security and intrusion detection
-- `privilege/` - PAM security and privilege escalation prevention
-- `security/` - Core security configurations and integrity monitoring
+- **Non-root execution** — runs as `uid=10001`, shell set to `/usr/sbin/nologin`
+- **FIPS 140-3 aligned TLS** — ECDHE-RSA-AES256-GCM-SHA384 / AES128-GCM-SHA256 only; TLS 1.2+
+- **openssl CLI removed** — purged after the build-time FIPS self-test; `libssl3t64` runtime kept
+- **AppArmor / SELinux** — host-enforced LSMs; profile assignment is a runtime/orchestration concern
+- **Seccomp** profiles applied via Docker runtime
+- **Read-only root filesystem** with `tmpfs` mounts for writable paths
+- **No new privileges** capability enforced
+- **Kernel parameters** hardened via `/etc/sysctl.d/99-hardening.conf` and the compose `sysctls:` block
 
-## Security Model
+---
 
-### Build-Time Hardening
-- All security scripts execute during Docker build as root
-- System configurations are applied and locked down
-- Hardening completion marker is created
-- Image is prepared for secure runtime execution
+## Architecture
 
-### Runtime Security
-- Container runs as non-root user (uid=10001)
-- Hardening scripts are skipped (already completed)
-- Application executes with minimal privileges
-- Security policies remain enforced
+```
+hardn-xdr/
+├── Dockerfile                  # Hardened Debian 13 Trixie image definition
+├── docker-compose.yml          # CIS-compliant compose config (port 8082→5000)
+├── deb.hardn.sh                # Container-internal hardening script (build-time)
+├── entrypoint.sh               # Runtime entrypoint (runs hardening once, then execs)
+├── health_check.sh             # Docker HEALTHCHECK + CIS verification
+├── smoke_test.sh               # Full CIS Docker Benchmark 1.13.0 test suite
+└── src/
+    ├── app.py                  # Flask compliance dashboard (port 5000)
+    └── sources/
+        └── hardn_docker.png    # Project logo (embedded in web UI)
+```
 
-## Application Deployment
+### Base Image
 
-The container includes a sample web application served via `socat` that demonstrates the image can successfully host applications. To deploy your own application:
+```
+debian:trixie-slim@sha256:1d3c811171a08a5adaa4a163fbafd96b61b87aa871bbc7aa15431ac275d3d430
+```
 
-1. Replace `/usr/local/bin/simple-server` with your application
-2. Update the Dockerfile CMD if needed
-3. Rebuild the image
+Debian 13 (Trixie), pinned digest. For government/DoD production use, swap to Iron Bank:
 
-The container runs as a non-root user with comprehensive security hardening while maintaining full application functionality.
+```dockerfile
+FROM registry1.dso.mil/ironbank/opensource/debian/debian12:latest
+```
+
+---
+
+## Production / Government Deployment
+
+This image targets **CIS Docker Benchmark 1.13.0**, **DISA STIG**, and **FISMA** compliance profiles.
+
+- **Iron Bank** (`registry1.dso.mil`) — free account, DoD-approved, zero-CVE base; use for classified/government environments
+- **FIPS 140-3** — the image applies OpenSSL FIPS policy (AEAD-only ciphers, TLS 1.2+) and sets `OPENSSL_FIPS=1` at runtime; for a fully certified FIPS environment use a FIPS-validated kernel and a FIPS-enabled OS base (e.g., RHEL 9 with FIPS mode enabled)
+- Deploy with `read_only: true`, `cap_drop: ALL`, `no-new-privileges: true` (already set in `docker-compose.yml`)
+- Bind only to loopback in production: `127.0.0.1:8082:5000` (already set)
+- The `openssl` CLI is removed from the final image; use `libssl3t64` APIs or a separate tooling container for certificate operations
 
 ---
 
 *Built with security and compliance in mind for production deployments.*
-## Vulnerability Scanning with Trivy
-
-Validate the hardened image using Trivy after each build.
-
-```
-Report Summary
-
-┌────────────────────────────────┬────────┬─────────────────┐
-│             Target             │  Type  │ Vulnerabilities │
-├────────────────────────────────┼────────┼─────────────────┤
-│ hardn-xdr:latest (debian 13.2) │ debian │        0        │
-└────────────────────────────────┴────────┴─────────────────┘
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-```
-
-### Scan 
-
-```bash
-# If you have the docker CLI plugin:
-docker compose build --no-cache
-trivy image hardn-xdr:latest --severity HIGH,CRITICAL --scanners vuln
-trivy image hardn-xdr:latest --scanners vuln
-```
-
-## Architecture
-
-```bash
-hardn-xdr/
-├─ Dockerfile                   
-├─ docker-compose.yml           
-├─ deb.hardn.sh                
-├─ entrypoint.sh               
-├─ health_check.sh              
-├─ smoke_test.sh                
-├─ src/sources/                 
-│  ├─ compliance/
-│  │  ├─ openscap-registry.sh   # OpenSCAP compliance scanning
-│  │  └─ cron.sh               # Automated compliance monitoring
-│  ├─ memory/
-│  │  ├─ clamav.sh            # ClamAV antivirus configuration
-│  │  ├─ part.sh              # Docker partition & memory security
-│  │  └─ protection.sh        # Memory protection & buffer overflow prevention
-│  ├─ network/
-│  │  └─ tripwire.sh          # Tripwire intrusion detection (AIDE removed to reduce dependencies/CVEs)
-│  ├─ privilege/
-│  │  ├─ access.sh            # PAM security & user access controls
-│  │  └─ rkhunter.sh          # rkhunter rootkit detection
-│  └─ security/
-│     ├─ apparmor.sh          # AppArmor profile configuration
-│     ├─ docker-daemon.sh     # Docker daemon security setup
-│     ├─ host-config.sh       # Host security configuration
-│     ├─ image-security.sh    # Container image security
-│     ├─ integrity.sh         # File integrity monitoring
-│     ├─ security.sh          # Core security configurations
-│     └─ docker-daemon.sh     # Docker daemon security (TLS, audit, etc.)
-├─ README.md                    # This documentation
-└─ SECURITY-REMEDIATION.md     # Security hardening guide
-```
