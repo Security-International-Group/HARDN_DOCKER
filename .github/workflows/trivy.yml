@@ -4,7 +4,6 @@ on:
   push:
     branches: [ "*" ]
   pull_request:
-    # The branches below must be a subset of the branches above
     branches: [ "*" ]
   schedule:
     - cron: '26 1 * * 5'
@@ -15,11 +14,13 @@ permissions:
 jobs:
   build:
     permissions:
-      contents: read # for actions/checkout to fetch code
-      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
-      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+      contents: read
+      security-events: write 
+      actions: read 
+
     name: Build
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -28,12 +29,19 @@ jobs:
         run: |
           docker build -t docker.io/my-organization/my-app:${{ github.sha }} .
 
+      - name: Cache Trivy DB
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: 'docker.io/my-organization/my-app:${{ github.sha }}'
-          format: 'template'
-          template: '@/contrib/sarif.tpl'
+          format: 'sarif' # Use the new SARIF patch 
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
 
