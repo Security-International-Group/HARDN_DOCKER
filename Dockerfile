@@ -49,6 +49,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get install -y --no-install-recommends \
         bash coreutils findutils grep sed gawk xz-utils which \
         ca-certificates openssl \
+        openssl-provider-fips \ 
         libpam-pwquality \
         auditd; \
     # curl carries multiple MEDIUM CVEs and is not needed at runtime
