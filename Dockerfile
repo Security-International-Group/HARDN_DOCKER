@@ -150,20 +150,19 @@ RUN set -eux; \
         sed -i '/^CipherString/a CipherSuites = TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256' /etc/ssl/openssl.cnf; \
     echo "[FIPS] TLS cipher policy applied"
 
-# Attempt to activate the OpenSSL 3.x FIPS provider at build time.
+# Activate the OpenSSL 3.x FIPS provider at build time — hard fail if fips.so is absent.
 # The provider lives at /usr/lib/<arch>/ossl-modules/fips.so on Debian 13.
-# If the slim base doesn't ship it, FIPS activation falls back to the runtime
-# environment variable OPENSSL_FIPS=1 (already set in ENV below).
+# No silent fallback: if the module is missing the build stops here so the image
+# never ships claiming FIPS alignment without having verified it.
 RUN set -eux; \
     FIPS_SO=$(find /usr/lib -path '*/ossl-modules/fips.so' 2>/dev/null | head -1); \
-    if [ -n "${FIPS_SO:-}" ]; then \
-        mkdir -p /etc/ssl; \
-        openssl fipsinstall -out /etc/ssl/fips.cnf -module "${FIPS_SO}" \
-        && printf '\n# HARDN-XDR: FIPS 140-3 provider\n.include /etc/ssl/fips.cnf\n' >> /etc/ssl/openssl.cnf \
-        && echo "[FIPS] provider self-test passed: ${FIPS_SO}"; \
-    else \
-        echo "[FIPS] fips.so not found; activate at deployment with OPENSSL_FIPS=1"; \
-    fi
+    [ -n "${FIPS_SO}" ] || { echo "ERROR: FIPS provider (fips.so) not found — use a FIPS-capable base image."; exit 1; }; \
+    mkdir -p /etc/ssl; \
+    openssl fipsinstall -out /etc/ssl/fips.cnf -module "${FIPS_SO}"; \
+    grep -q 'fips.cnf' /etc/ssl/openssl.cnf || \
+        printf '\n# HARDN-XDR: FIPS 140-3 provider\n.include /etc/ssl/fips.cnf\n' >> /etc/ssl/openssl.cnf; \
+    grep -q 'fips.cnf' /etc/ssl/openssl.cnf || { echo "ERROR: fips.cnf not included in openssl.cnf — aborting."; exit 1; }; \
+    echo "[FIPS] provider self-test passed: ${FIPS_SO}"
 
 # The openssl CLI was only needed for the fipsinstall step above.
 # Purge it now to eliminate its CVE surface from the final image.
@@ -222,7 +221,7 @@ RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/* \
  && rm -rf /usr/share/locale/* /usr/share/i18n/* /usr/share/doc/* /usr/share/man/* 2>/dev/null || true \
  && find /var/log -type f -exec truncate -s 0 {} \; || true
 
-# OCI labels 
+# OCI labels
 LABEL org.opencontainers.image.title="HARDN-XDR (Debian 13, CIS/FIPS)" \
       org.opencontainers.image.description="Hardened Debian 13 (Trixie) container image: CIS Docker Benchmark 1.13.0, FIPS 140-3 aligned (AES-GCM/SHA-2 only, TLS 1.2+), non-root user, umask 027, DISA STIG hardening, read-only-rootfs friendly. FIPS provider activation requires deployment on a FIPS-validated host kernel." \
       org.opencontainers.image.vendor="HARDN-XDR Project" \
@@ -255,6 +254,8 @@ LABEL org.opencontainers.image.title="HARDN-XDR (Debian 13, CIS/FIPS)" \
 STOPSIGNAL SIGTERM
 
 # Runtime environment — OPENSSL_FIPS=1 signals OpenSSL to require the FIPS provider.
+# OPENSSL_CONF ensures the FIPS-configured openssl.cnf is always loaded.
+# OPENSSL_MODULES tells OpenSSL 3.x where to find fips.so at runtime.
 # AppArmor and SELinux profiles are applied by the host runtime, not baked into the image.
 ENV MEMORY_LIMIT=512m \
     CPU_SHARES=1024 \
@@ -264,6 +265,8 @@ ENV MEMORY_LIMIT=512m \
     RESTART_POLICY=on-failure:5 \
     OPENSSL_FIPS=1 \
     FIPS_MODE=1 \
+    OPENSSL_CONF=/etc/ssl/openssl.cnf \
+    OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 USER ${HARDN_UID}:${HARDN_GID}
