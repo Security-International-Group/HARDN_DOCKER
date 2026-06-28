@@ -22,12 +22,12 @@ jobs:
     steps:
       
       - name: Legion Harden Runner
-        uses: OpenSource-For-Freedom/Legion_runner@v1.0.40
+        uses: OpenSource-For-Freedom/Legion_runner@v1.0.41
         with:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
